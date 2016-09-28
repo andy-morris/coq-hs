@@ -18,7 +18,9 @@ library
   default-language:   Haskell2010
   ghc-options:        -Wall
   exposed-modules:
-    Coq
+    Coq,
+    Coq.Protocol,
+    Coq.Xml
   build-depends:
     base == 4.9.*,
     text == 1.2.*,
