@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MonadComprehensions #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
@@ -8,7 +9,8 @@
 module Coq.Xml
   (XmlEncode (..),
    XmlDecode (..), XmlDecoder,
-   XmlMessage (..))
+   XmlMessage (..),
+   makeCall, fromResponse, Response (..))
 where
 
 import Prelude hiding (negate)
@@ -17,7 +19,9 @@ import Text.Read (readMaybe)
 import Text.XML.Light
 import Control.Applicative
 import Control.Monad
-import Data.Text (Text, pack, unpack)
+import Data.Text  (Text, pack, unpack)
+import Data.Maybe (fromMaybe)
+import Data.List  (find)
 
 
 -- | Encode an outgoing message as XML.
@@ -33,16 +37,47 @@ class XmlDecode a where
     -- | Decode a message.
     decode :: XmlDecoder a
 
--- | Class for (outgoing) messages which associates them with their
--- response and their RPC name.
-class (XmlEncode a, XmlDecode (Resp a)) => XmlMessage a where
-    -- | Response type
-    type Resp a = r | r -> a
+-- | Class for messages which associates requests with responses and gives
+-- their RPC call name.
+class (XmlEncode req, XmlDecode resp) =>
+  XmlMessage req resp | req -> resp, resp -> req where
     -- | Call name, which is used in the @val@ attribute in a @call@
     -- element.
-    callName :: a -> String
+    callName :: req -> String
 
 
+makeCall :: XmlMessage req resp => req -> Element
+makeCall x = unode "call" (uattr "val" (callName x), encode x)
+
+
+-- | A response from @coqtop@.
+data Response a =
+    -- | The command failed
+    Failure StateId String
+    -- | Couldn't understand @coqtop@'s response
+  | DecodeError
+    -- | The command was successful
+  | Success a
+  deriving (Eq, Show)
+
+
+fromResponse :: XmlMessage req resp => Element -> Response resp
+fromResponse elt =
+    fromMaybe DecodeError $ do
+      Element e attrs elts _ <- pure elt
+      guard (e ==. "value")
+      decodeSuccess attrs elts <|> decodeFailure attrs elts
+  where
+    decodeSuccess attrs elts = do
+        [Attr a "good"] <- pure attrs
+        guard (a ==. "val")
+        [Elem e] <- pure elts
+        Success <$> decode e
+    decodeFailure attrs elts = do
+        Attr _ "fail" <- find (\a -> attrKey a ==. "val") attrs
+        [Elem sid', Text err] <- pure elts
+        sid <- decode sid'
+        pure (Failure sid (cdData err))
 
 
 instance XmlEncode StateId where
@@ -165,8 +200,7 @@ instance XmlEncode Init where encode = encode . iFilename
 
 instance XmlDecode InitResp where decode = fmap InitResp . decode
 
-instance XmlMessage Init where
-    type Resp Init = InitResp
+instance XmlMessage Init InitResp where
     callName _ = "Init"
 
 
@@ -178,8 +212,7 @@ instance XmlDecode AboutResp where
         liftA4 AboutResp (decode coqtop) (decode proto)
                          (decode rel)    (decode comp)
 
-instance XmlMessage About where
-    type Resp About = AboutResp
+instance XmlMessage About AboutResp where
     callName _ = "About"
 
 
@@ -191,8 +224,7 @@ instance XmlDecode StatusResp where
         liftA4 StatusResp (decode path) (decode nm)
                           (decode proofs) (decode num)
 
-instance XmlMessage Status where
-    type Resp Status = StatusResp
+instance XmlMessage Status StatusResp where
     callName _ = "Status"
 
 
@@ -204,8 +236,7 @@ instance XmlDecode AddResp where
         (arStateId, (arEditPoint', arMessage)) <- decode elt
         pure (AddResp {arEditPoint = unEither arEditPoint', ..})
 
-instance XmlMessage Add where
-    type Resp Add = AddResp
+instance XmlMessage Add AddResp where
     callName _ = "Add"
 
 
@@ -218,8 +249,7 @@ instance XmlDecode EditAtResp where
             Left  ()                         -> pure EditAtNewTip
             Right (erStart, (erStop, erTip)) -> pure (EditAtFocus {..})
 
-instance XmlMessage EditAt where
-    type Resp EditAt = EditAtResp
+instance XmlMessage EditAt EditAtResp where
     callName _ = "EditAt"
 
 
@@ -228,8 +258,7 @@ instance XmlEncode Query where
 
 instance XmlDecode QueryResp where decode = fmap QueryResp . decode
 
-instance XmlMessage Query where
-    type Resp Query = QueryResp
+instance XmlMessage Query QueryResp where
     callName _ = "Query"
 
 
@@ -250,8 +279,7 @@ instance XmlDecode GoalInfo where
         [g, h, c] <- decodeRecord "goal" elt
         liftA3 GoalInfo (decode g) (decode h) (decode c)
 
-instance XmlMessage Goal where
-    type Resp Goal = GoalResp
+instance XmlMessage Goal GoalResp where
     callName _ = "Goal"
 
 
@@ -262,8 +290,7 @@ instance XmlDecode EvarsResp where
 
 instance XmlDecode Evar where decode = fmap Evar . decode
 
-instance XmlMessage Evars where
-    type Resp Evars = EvarsResp
+instance XmlMessage Evars EvarsResp where
     callName _ = "Evars"
 
 
@@ -275,8 +302,7 @@ instance XmlDecode HintsResp where
 instance XmlDecode Hint where
     decode = fmap (uncurry Hint) . decode
 
-instance XmlMessage Hints where
-    type Resp Hints = HintsResp
+instance XmlMessage Hints HintsResp where
     callName _ = "Hints"
 
 
@@ -305,8 +331,7 @@ instance XmlDecode a => XmlDecode (CoqObject a) where
         [pre, qid, obj] <- decodeRecord "coq_object" elt
         liftA3 CoqObject (decode pre) (decode qid) (decode obj)
 
-instance XmlMessage Search where
-    type Resp Search = SearchResp
+instance XmlMessage Search SearchResp where
     callName _ = "Search"
 
 
@@ -334,8 +359,7 @@ instance XmlDecode OptionValue where
             "stringoptvalue" -> StringOptValue <$> decode y
             _                -> mzero
 
-instance XmlMessage GetOptions where
-    type Resp GetOptions = GetOptionsResp
+instance XmlMessage GetOptions GetOptionsResp where
     callName _ = "GetOptions"
 
 
@@ -358,8 +382,7 @@ instance XmlEncode OptionValue where
 instance XmlDecode SetOptionsResp where
     decode elt = SetOptionsResp <$ decodeUnit elt
 
-instance XmlMessage SetOptions where
-    type Resp SetOptions = SetOptionsResp
+instance XmlMessage SetOptions SetOptionsResp where
     callName _ = "SetOptions"
 
 
@@ -367,8 +390,7 @@ instance XmlEncode MakeCases where encode = encode . mcTypeName
 
 instance XmlDecode MakeCasesResp where decode = fmap MakeCasesResp . decode
 
-instance XmlMessage MakeCases where
-    type Resp MakeCases = MakeCasesResp
+instance XmlMessage MakeCases MakeCasesResp where
     callName _ = "MakeCases"
 
 
@@ -377,8 +399,7 @@ instance XmlEncode Quit where encode _ = encode ()
 instance XmlDecode QuitResp where
     decode elt = QuitResp <$ decodeUnit elt
 
-instance XmlMessage Quit where
-    type Resp Quit = QuitResp
+instance XmlMessage Quit QuitResp where
     callName _ = "Quit"
 
 
