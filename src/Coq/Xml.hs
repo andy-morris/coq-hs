@@ -19,9 +19,9 @@ import Text.Read (readMaybe)
 import Text.XML.Light
 import Control.Applicative
 import Control.Monad
+import Data.Char  (isSpace, chr)
 import Data.Text  (Text, pack, unpack)
 import Data.Maybe (fromMaybe)
-import Data.List  (find)
 
 
 -- | Encode an outgoing message as XML.
@@ -53,7 +53,7 @@ makeCall x = unode "call" (uattr "val" (callName x), encode x)
 -- | A response from @coqtop@.
 data Response a =
     -- | The command failed
-    Failure StateId String
+    Failure (Maybe (Int, Int)) StateId String
     -- | Couldn't understand @coqtop@'s response
   | DecodeError
     -- | The command was successful
@@ -71,13 +71,19 @@ fromResponse elt =
     decodeSuccess attrs elts = do
         [Attr a "good"] <- pure attrs
         guard (a ==. "val")
-        [Elem e] <- pure elts
+        [Elem e] <- pure (filter notSpace elts)
         Success <$> decode e
     decodeFailure attrs elts = do
-        Attr _ "fail" <- find (\a -> attrKey a ==. "val") attrs
-        [Elem sid', Text err] <- pure elts
+        "fail" <- lookupAttr' "val" attrs
+        let loc = liftA2 (,) (readMaybe =<< lookupAttr' "loc_s" attrs)
+                             (readMaybe =<< lookupAttr' "loc_e" attrs)
+        Elem sid' : txts <- pure (filter notSpace elts)
         sid <- decode sid'
-        pure (Failure sid (cdData err))
+        txt <- concatTexts txts
+        pure (Failure loc sid (trimSpace txt))
+    lookupAttr' = lookupAttr . unqual
+    trimSpace = dropWhileEnd isSpace . dropWhile isSpace
+    dropWhileEnd p = reverse . dropWhile p . reverse
 
 
 instance XmlEncode StateId where
