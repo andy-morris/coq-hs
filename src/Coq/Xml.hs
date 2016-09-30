@@ -344,9 +344,9 @@ instance XmlDecode Option where decode = fmap (uncurry Option) . decode
 
 instance XmlDecode OptionState where
     decode elt = do
-        [sync, dep, nm, val] <- decodeRecord "option_state" elt
+        [sync, dep, desc, val] <- decodeRecord "option_state" elt
         liftA4 OptionState (decode sync) (decode dep)
-                           (decode nm)   (decode val)
+                           (decode desc) (decode val)
 
 instance XmlDecode OptionValue where
     decode elt = do

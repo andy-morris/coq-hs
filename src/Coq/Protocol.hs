@@ -275,7 +275,7 @@ data Option = Option { oName :: [Text], oState :: OptionState }
 data OptionState =
     OptionState {
       osSynchronous, osDeprecated :: Bool,
-      osName                      :: [Text],
+      osDescription               :: Text,
       osValue                     :: OptionValue
     }
   deriving (Eq, Show)
