@@ -98,7 +98,7 @@ decodeUnion :: String -> ((String, [Element]) -> Maybe a) -> XmlDecoder a
 decodeUnion typ fun elt = do
     Element e [Attr a con] es' _ <- pure elt
     guard (and [e ==. typ, a ==. "val"])
-    es <- traverse unElem es'
+    es <- traverse unElem (filter notSpace es')
     fun (con, es)
 
 instance XmlEncode Bool where
@@ -125,9 +125,26 @@ instance XmlEncode Text where encode = unode "string" . unpack
 
 instance XmlDecode Text where
     decode elt = do
-        Element e [] [Text txt] _ <- pure elt
+        Element e [] txts _ <- pure elt
         guard (e ==. "string")
-        pure (pack (cdData txt))
+        pack <$> concatTexts txts
+
+concatTexts :: [Content] -> Maybe String
+concatTexts = fmap concat . traverse toString
+  where
+    toString (Text txt) = pure (cdData txt)
+    toString (CRef ent) =
+        case ent of
+          -- list taken from lib/xml_lexer.mll:51-56
+          "nbsp"  -> pure "\xA0"
+          "gt"    -> pure ">"
+          "lt"    -> pure "<"
+          "amp"   -> pure "&"
+          "apos"  -> pure "'"
+          "quot"  -> pure "\""
+          '#':num -> do i <- readMaybe num; pure [chr i]
+          _       -> mzero
+    toString _          = mzero
 
 
 instance XmlEncode a => XmlEncode (Maybe a) where
@@ -151,8 +168,8 @@ instance XmlDecode () where
 
 decodeUnit :: XmlDecoder ()
 decodeUnit elt = do
-    Element e [] [] _ <- pure elt
-    guard (e ==. "unit")
+    Element e [] es _ <- pure elt
+    guard (and [e ==. "unit", not (any notSpace es)])
 
 
 instance (XmlEncode a, XmlEncode b) => XmlEncode (a, b) where
@@ -163,8 +180,9 @@ instance (XmlDecode a, XmlDecode b) => XmlDecode (a, b) where
 
 decodePair :: XmlDecoder a -> XmlDecoder b -> XmlDecoder (a, b)
 decodePair dec1 dec2 elt = do
-    Element e [] [Elem a, Elem b] _ <- pure elt
+    Element e [] es _ <- pure elt
     guard (e ==. "pair")
+    [Elem a, Elem b] <- pure (filter notSpace es)
     liftA2 (,) (dec1 a) (dec2 b)
 
 
@@ -178,7 +196,7 @@ decodeList :: XmlDecoder a -> XmlDecoder [a]
 decodeList dec elt = do
     Element e [] es _ <- pure elt
     guard (e ==. "list")
-    traverse (dec <=< unElem) es
+    traverse (dec <=< unElem) (filter notSpace es)
 
 
 instance (XmlEncode a, XmlEncode b) => XmlEncode (Either a b) where
@@ -195,7 +213,12 @@ decodeRecord :: String -> XmlDecoder [Element]
 decodeRecord str elt = do
     Element e [] es _ <- pure elt
     guard (e ==. str)
-    traverse unElem es
+    traverse unElem (filter notSpace es)
+
+notSpace :: Content -> Bool
+notSpace (Text str) = not (all isSpace (cdData str))
+notSpace _          = True
+
 
 encodeConstructor :: XmlEncode a => String -> String -> a -> Element
 encodeConstructor con name arg =
@@ -355,15 +378,12 @@ instance XmlDecode OptionState where
                            (decode desc) (decode val)
 
 instance XmlDecode OptionValue where
-    decode elt = do
-        Element e [Attr a x] [Elem y] _ <- pure elt
-        guard (and [e ==. "option_value", a ==. "val"])
-        case x of
-            "boolvalue"      -> BoolValue      <$> decode y
-            "intvalue"       -> IntValue       <$> decode y
-            "stringvalue"    -> StringValue    <$> decode y
-            "stringoptvalue" -> StringOptValue <$> decode y
-            _                -> mzero
+    decode = decodeUnion "option_value" $ \case
+        ("boolvalue",      [e]) -> BoolValue      <$> decode e
+        ("intvalue",       [e]) -> IntValue       <$> decode e
+        ("stringvalue",    [e]) -> StringValue    <$> decode e
+        ("stringoptvalue", [e]) -> StringOptValue <$> decode e
+        _                       -> mzero
 
 instance XmlMessage GetOptions GetOptionsResp where
     callName _ = "GetOptions"
