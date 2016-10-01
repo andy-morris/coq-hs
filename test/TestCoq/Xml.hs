@@ -7,19 +7,14 @@ module TestCoq.Xml (tests, module Coq.Xml) where
 
 import Coq.Protocol
 import Coq.Xml
+import TestCoq.XmlQQ
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (testProperty)
 import Test.Tasty.TH
-import Data.Char (isSpace)
-import Data.Maybe (fromJust)
-import Data.Function (on)
 import Data.Text.Arbitrary (Text)
-import Data.String (IsString (..))
-import Data.String.QQ
-import Text.XML.Light
 
 
-encodeDecode :: (XmlEncode a, XmlDecode a, Eq a) => a -> Bool
+encodeDecode :: (Encode a, Decode a, Eq a) => a -> Bool
 encodeDecode x = decode (encode x) == Just x
 
 prop_encodeDecode_Unit   = encodeDecode @()
@@ -31,76 +26,65 @@ prop_encodeDecode_Pair   = encodeDecode @(Int, Text)
 prop_encodeDecode_List   = encodeDecode @[Int]
 prop_encodeDecode_Either = encodeDecode @(Either Int Text)
 
-showEncode :: XmlEncode a => a -> String
-showEncode = showElement . encode
-
 case_encode_Unit =
-    showEncode () @?= [s|<unit />|]
+    encode () @?= [xml|<unit />|]
 case_encode_True =
-    showEncode True @?= [s|<bool val="true" />|]
+    encode True @?= [xml|<bool val="true" />|]
 case_encode_False =
-    showEncode False @?= [s|<bool val="false" />|]
+    encode False @?= [xml|<bool val="false" />|]
 case_encode_42 =
-    showEncode (42 :: Int) @?= [s|<int>42</int>|]
+    encode (42 :: Int) @?= [xml|<int>42</int>|]
 case_encode_str =
-    showEncode ("hello" :: Text) @?= [s|<string>hello</string>|]
+    encode ("hello" :: Text) @?= [xml|<string>hello</string>|]
 case_encode_entities =
-    showEncode ("<hello>" :: Text) @?= [s|<string>&lt;hello&gt;</string>|]
+    encode ("<hello>" :: Text) @?= [xml|<string>&lt;hello&gt;</string>|]
 case_encode_Nothing =
-    showEncode (Nothing @()) @?= [s|<option val="none" />|]
+    encode (Nothing @()) @?= [xml|<option val="none" />|]
 case_encode_Just =
-    showEncode (Just False) @?=
-    [s|<option val="some"><bool val="false" /></option>|]
+    encode (Just False) @?=
+    [xml|<option val="some"><bool val="false" /></option>|]
 case_encode_Pair =
-    showEncode (42 :: Int, "hello" :: Text) @?=
-    [s|<pair><int>42</int><string>hello</string></pair>|]
+    encode (42 :: Int, "hello" :: Text) @?=
+    [xml|<pair><int>42</int><string>hello</string></pair>|]
 case_encode_ListNil =
-    showEncode ([] :: [Int]) @?= [s|<list />|]
+    encode ([] :: [Int]) @?= [xml|<list />|]
 case_encode_List3 =
-    showEncode [True, True, False] @?=
-    [s|<list><bool val="true" /><bool val="true" />|] ++
-    [s|<bool val="false" /></list>|]
+    encode [True, True, False] @?= [xml|
+      <list>
+        <bool val="true" />
+        <bool val="true" />
+        <bool val="false" />
+      </list>
+    |]
 case_encode_Left =
-    showEncode (Left 42 :: Either Int Int) @?=
-    [s|<union val="in_l"><int>42</int></union>|]
+    encode (Left 42 :: Either Int Int) @?=
+    [xml|<union val="in_l"><int>42</int></union>|]
 case_encode_Right =
-    showEncode (Right 42 :: Either Int Int) @?=
-    [s|<union val="in_r"><int>42</int></union>|]
+    encode (Right 42 :: Either Int Int) @?=
+    [xml|<union val="in_r"><int>42</int></union>|]
 
-
-newtype PPXML = PPXML {unPPXML :: Element}
-instance Eq PPXML where
-    (==) = (==) `on` (showElement . removeSpace . unPPXML)
-instance Show PPXML where
-    show = ppElement . removeSpace . unPPXML
-instance IsString PPXML where
-    fromString = PPXML . fromJust . parseXMLDoc
-
-encodeCall :: XmlMessage req resp => req -> PPXML
-encodeCall = PPXML . makeCall
-
-decodeStr :: XmlDecode resp => PPXML -> Maybe resp
-decodeStr = decode . unPPXML
 
 case_decode_entities1 =
-    decodeStr [s|<string>&lt;hello&gt;</string>|] @?=
+    decode [xml|<string>&lt;hello&gt;</string>|] @?=
     Just ("<hello>" :: Text)
 case_decode_entities2 =
-    decodeStr [s|<string>&#9786;</string>|] @?=
+    decode [xml|<string>&#9786;</string>|] @?=
     Just ("\9786" :: Text)
 
+
+
 case_encode_Init =
-    encodeCall (Init Nothing) @?=
-    [s|<call val="Init"><option val="none" /></call>|]
+    makeCall (Init Nothing) @?=
+    [xml|<call val="Init"><option val="none" /></call>|]
 case_decode_InitResp =
-    decodeStr [s|<state_id val="42" />|] @?=
+    decode [xml|<state_id val="42" />|] @?=
     Just (InitResp (StateId 42))
 
 case_encode_About =
-    encodeCall About @?= [s|<call val="About"><unit /></call>|]
+    makeCall About @?= [xml|<call val="About"><unit /></call>|]
 case_decode_AboutResp =
-    decodeStr
-      [s|<coq_info>
+    decode
+      [xml|<coq_info>
            <string>8.5</string>
            <string>20140312</string>
            <string>June&nbsp;2016</string>
@@ -115,10 +99,10 @@ case_decode_AboutResp =
     })
 
 case_encode_Status =
-    encodeCall (Status True) @?=
-    [s|<call val="Status"><bool val="true" /></call>|]
+    makeCall (Status True) @?=
+    [xml|<call val="Status"><bool val="true" /></call>|]
 case_decode_Status =
-    decodeStr [s|
+    decode [xml|
       <status>
         <list><string>Mod</string></list>
         <option val="some"><string>pf</string></option>
@@ -134,16 +118,16 @@ case_decode_Status =
     })
 
 case_encode_Add =
-    encodeCall (Add {
-      aPhrase  = " intros.",
+    makeCall (Add {
+      aPhrase  = "intros.",
       aEditId  = 11, -- FIXME if this value diesn't actually make sense
       aStateId = StateId 0,
       aVerbose = False
-    }) @?= [s|
+    }) @?= [xml|
       <call val="Add">
         <pair>
           <pair>
-            <string> intros.</string>
+            <string>intros.</string>
             <int>11</int>
           </pair>
           <pair>
@@ -154,7 +138,7 @@ case_encode_Add =
       </call>
     |]
 case_decode_Add =
-    decodeStr [s|
+    decode [xml|
       <pair>
         <state_id val="1" />
         <pair>
@@ -170,13 +154,13 @@ case_decode_Add =
     })
 
 case_encode_EditAt =
-    encodeCall (EditAt (StateId 1)) @?=
-    [s|<call val="EditAt"> <state_id val="1" /> </call>|]
+    makeCall (EditAt (StateId 1)) @?=
+    [xml|<call val="EditAt"> <state_id val="1" /> </call>|]
 case_decode_EditAt1 =
-    decodeStr [s|<union val="in_l"> <unit /> </union>|] @?=
+    decode [xml|<union val="in_l"> <unit /> </union>|] @?=
     Just EditAtNewTip
 case_decode_EditAt2 =
-    decodeStr [s|
+    decode [xml|
       <union val="in_r">
         <pair>
           <state_id val="1" />
@@ -194,8 +178,8 @@ case_decode_EditAt2 =
     })
 
 case_encode_Query =
-    encodeCall (Query "Print nat." (StateId 3))
-    @?= [s|
+    makeCall (Query "Print nat." (StateId 3))
+    @?= [xml|
       <call val="Query">
         <pair>
           <string>Print nat.</string>
@@ -204,17 +188,17 @@ case_encode_Query =
       </call>
     |]
 case_decode_Query =
-    decodeStr [s|<string>nat : Set</string>|] @?=
+    decode [xml|<string>nat : Set</string>|] @?=
     Just (QueryResp "nat : Set")
 
 case_encode_Goal =
-    encodeCall Goal @?=
-    [s|<call val="Goal"> <unit /> </call>|]
+    makeCall Goal @?=
+    [xml|<call val="Goal"> <unit /> </call>|]
 case_decode_Goal1 =
-    decodeStr [s|<option val="none" />|] @?=
+    decode [xml|<option val="none" />|] @?=
     Just GoalNotInProof
 case_decode_Goal2 =
-    decodeStr [s|
+    decode [xml|
       <option val="some">
         <goals>
           <list />
@@ -242,11 +226,11 @@ case_decode_Goal2 =
     })
 
 case_encode_Evars =
-    encodeCall Evars @?= [s|<call val="Evars"> <unit /> </call>|]
+    makeCall Evars @?= [xml|<call val="Evars"> <unit /> </call>|]
 case_decode_Evars1 =
-    decodeStr [s|<option val="none" />|] @?= Just EvarsNotInProof
+    decode [xml|<option val="none" />|] @?= Just EvarsNotInProof
 case_decode_Evars2 =
-    decodeStr [s|
+    decode [xml|
       <option val="some">
         <list> <string>?a</string> <string>?b</string> </list>
       </option>
@@ -254,11 +238,11 @@ case_decode_Evars2 =
     Just (EvarsResp [Evar "?a", Evar "?b"])
 
 case_encode_Hints =
-    encodeCall Hints @?= [s|<call val="Hints"> <unit /> </call>|]
+    makeCall Hints @?= [xml|<call val="Hints"> <unit /> </call>|]
 case_decode_Hints1 =
-    decodeStr [s|<option val="none" />|] @?= Just HintsNotInProof
+    decode [xml|<option val="none" />|] @?= Just HintsNotInProof
 case_decode_Hints2 =
-    decodeStr [s|
+    decode [xml|
       <option val="some">
         <pair>
           <list> <list /> </list>
@@ -280,9 +264,9 @@ case_decode_Hints2 =
     })
 
 case_encode_Search =
-    encodeCall (Search [SearchFlag (TypePattern "Set") True,
+    makeCall (Search [SearchFlag (TypePattern "Set") True,
                         SearchFlag (InModule ["M"]) False])
-    @?= [s|
+    @?= [xml|
       <call val="Search">
         <list>
           <pair>
@@ -301,7 +285,7 @@ case_encode_Search =
       </call>
     |]
 case_decode_Search =
-    decodeStr [s|
+    decode [xml|
       <list>
         <coq_object>
           <list> <string>M1</string> </list>
@@ -313,9 +297,9 @@ case_decode_Search =
     Just (SearchResp [CoqObject ["M1"] ["M2", "x"] "x : nat"])
 
 case_encode_GetOptions =
-    encodeCall GetOptions @?= [s|<call val="GetOptions"> <unit /> </call>|]
+    makeCall GetOptions @?= [xml|<call val="GetOptions"> <unit /> </call>|]
 case_decode_OptionState =
-    decodeStr [s|
+    decode [xml|
       <option_state>
         <bool val="true"/>
         <bool val="false"/>
@@ -329,7 +313,7 @@ case_decode_OptionState =
     |] @?=
     Just (OptionState True False "name1" (IntValue (Just 37)))
 case_decode_GetOptions =
-    decodeStr [s|
+    decode [xml|
       <list>
         <pair>
           <list>
@@ -356,9 +340,9 @@ case_decode_GetOptions =
        }])
 
 case_encode_SetOptions =
-    encodeCall
+    makeCall
       (SetOptions [SetOption ["Printing", "Universes"] (BoolValue True)])
-    @?= [s|
+    @?= [xml|
       <call val="SetOptions">
         <list>
           <pair>
@@ -374,13 +358,13 @@ case_encode_SetOptions =
       </call>
     |]
 case_decode_SetOptions =
-    decodeStr [s|<unit />|] @?= Just SetOptionsResp
+    decode [xml|<unit />|] @?= Just SetOptionsResp
 
 case_encode_MakeCases =
-    encodeCall (MakeCases "nat") @?=
-    [s|<call val="MakeCases"> <string>nat</string> </call>|]
+    makeCall (MakeCases "nat") @?=
+    [xml|<call val="MakeCases"> <string>nat</string> </call>|]
 case_decode_MakeCases =
-    decodeStr [s|
+    decode [xml|
       <list>
         <list> <string>O</string> </list>
         <list> <string>S</string> <string>n</string> </list>
@@ -389,45 +373,31 @@ case_decode_MakeCases =
     Just (MakeCasesResp [["O"], ["S", "n"]])
 
 case_encode_Quit =
-    encodeCall Quit @?= [s|<call val="Quit"> <unit /> </call>|]
+    makeCall Quit @?= [xml|<call val="Quit"> <unit /> </call>|]
 case_decode_Quit =
-    decodeStr [s|<unit />|] @?= Just QuitResp
+    decode [xml|<unit />|] @?= Just QuitResp
 
 
 case_fromResponse_invalid =
-    fromResponse (fromJust (parseXMLDoc ("<whatever />" :: Text))) @?=
+    fromResponse [xml|<whatever/>|] @?=
     (DecodeError :: Response QuitResp)
 
 case_fromResponse_failure1 =
-    fromResponse (fromJust (parseXMLDoc ([s|
+    fromResponse [xml|
       <value val="fail">
         <state_id val="1" />
         no, sorry
       </value>
-    |] :: Text))) @?=
+    |] @?=
     (Failure Nothing (StateId 1) "no, sorry" :: Response QuitResp)
 
 case_fromResponse_failure2 =
-    fromResponse (fromJust (parseXMLDoc ([s|
+    fromResponse [xml|
       <value val="fail" loc_s="0" loc_e="1">
         <state_id val="1" />
         no, sorry
       </value>
-    |] :: Text))) @?=
-    (Failure (Just (0, 1)) (StateId 1) "no, sorry" :: Response QuitResp)
-
-
-removeSpace' :: Content -> Content
-removeSpace' (Elem e) = Elem (removeSpace e)
-removeSpace' c = c
-
-removeSpace :: Element -> Element
-removeSpace (Element e as cs l) =
-    let cs' = map removeSpace' (filter (not . isSpaceText) cs) in
-    Element e as cs' l
-
-isSpaceText :: Content -> Bool
-isSpaceText (Text str) = all isSpace (cdData str)
-isSpaceText _          = False
+    |] @?=
+    (Failure (Just (Loc 0 1)) (StateId 1) "no, sorry" :: Response QuitResp)
 
 tests = $(testGroupGenerator)

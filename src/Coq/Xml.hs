@@ -2,58 +2,63 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
 -- | XML encoding/decoding for messages to/from @coqtop@.
 module Coq.Xml
-  (XmlEncode (..),
-   XmlDecode (..), XmlDecoder,
-   XmlMessage (..),
-   makeCall, fromResponse, Response (..))
+  (module Coq.Protocol,
+   Encode (..),
+   Decode (..), Decoder,
+   Message (..),
+   makeCall, fromResponse, Response (..), Location (..),
+   Node (..), Attr (..), Child (..))
 where
 
 import Prelude hiding (negate)
 import Coq.Protocol
+import Coq.XmlAst
 import Text.Read (readMaybe)
-import Text.XML.Light
 import Control.Applicative
 import Control.Monad
-import Data.Char  (isSpace, chr)
-import Data.Text  (Text, pack, unpack)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Maybe (fromMaybe)
 
 
+
+
 -- | Encode an outgoing message as XML.
-class XmlEncode a where
+class Encode a where
     -- | Encode a message.
-    encode :: a -> Element
+    encode :: a -> Node
 
 -- | Function for matching against an XML fragment.
-type XmlDecoder a = Element -> Maybe a
+type Decoder a = Node -> Maybe a
 
 -- | Try to decode an XML document as an incoming message.
-class XmlDecode a where
+class Decode a where
     -- | Decode a message.
-    decode :: XmlDecoder a
+    decode :: Decoder a
 
 -- | Class for messages which associates requests with responses and gives
 -- their RPC call name.
-class (XmlEncode req, XmlDecode resp) =>
-  XmlMessage req resp | req -> resp, resp -> req where
+class (Encode rq, Decode rs) => Message rq rs | rq -> rs, rs -> rq where
     -- | Call name, which is used in the @val@ attribute in a @call@
     -- element.
-    callName :: req -> String
+    callName :: rq -> Text
 
 
-makeCall :: XmlMessage req resp => req -> Element
-makeCall x = unode "call" (uattr "val" (callName x), encode x)
+makeCall :: Message rq rs => rq -> Node
+makeCall x = Node "call" ["val" := callName x] [N (encode x)]
 
+
+data Location = Loc { locStart, locEnd :: Int }
+  deriving (Eq, Show)
 
 -- | A response from @coqtop@.
 data Response a =
     -- | The command failed
-    Failure (Maybe (Int, Int)) StateId String
+    Failure (Maybe Location) StateId Text
     -- | Couldn't understand @coqtop@'s response
   | DecodeError
     -- | The command was successful
@@ -61,239 +66,210 @@ data Response a =
   deriving (Eq, Show)
 
 
-fromResponse :: XmlMessage req resp => Element -> Response resp
+fromResponse :: Message rq rs => Node -> Response rs
 fromResponse elt =
     fromMaybe DecodeError $ do
-      Element e attrs elts _ <- pure elt
-      guard (e ==. "value")
+      Node e attrs elts <- pure elt
+      guard (e == "value")
       decodeSuccess attrs elts <|> decodeFailure attrs elts
   where
-    decodeSuccess attrs elts = do
-        [Attr a "good"] <- pure attrs
-        guard (a ==. "val")
-        [Elem e] <- pure (filter notSpace elts)
+    decodeSuccess ["val" := "good"] [N e] =
         Success <$> decode e
-    decodeFailure attrs elts = do
-        "fail" <- lookupAttr' "val" attrs
-        let loc = liftA2 (,) (readMaybe =<< lookupAttr' "loc_s" attrs)
-                             (readMaybe =<< lookupAttr' "loc_e" attrs)
-        Elem sid' : txts <- pure (filter notSpace elts)
+    decodeSuccess _ _ = empty
+    decodeFailure attrs [N sid', T txt] = do
+        "fail" <- lookupAttr "val" attrs
+        let loc = liftA2 Loc (tread =<< lookupAttr "loc_s" attrs)
+                             (tread =<< lookupAttr "loc_e" attrs)
         sid <- decode sid'
-        txt <- concatTexts txts
-        pure (Failure loc sid (trimSpace txt))
-    lookupAttr' = lookupAttr . unqual
-    trimSpace = dropWhileEnd isSpace . dropWhile isSpace
-    dropWhileEnd p = reverse . dropWhile p . reverse
+        pure (Failure loc sid txt)
+    decodeFailure _ _ = empty
 
 
-instance XmlEncode StateId where
-    encode (StateId i) = unode "state_id" (uattr "val" (show i))
+instance Encode StateId where
+    encode (StateId i) = Node "state_id" ["val" := tshow i] []
 
-instance XmlDecode StateId where
+instance Decode StateId where
     decode = decodeUnion "state_id" $ \case
-        (x, []) -> StateId <$> readMaybe x
-        _       -> mzero
+        (x, []) -> StateId <$> tread x
+        _       -> empty
 
-decodeUnion :: String -> ((String, [Element]) -> Maybe a) -> XmlDecoder a
-decodeUnion typ fun elt = do
-    Element e [Attr a con] es' _ <- pure elt
-    guard (and [e ==. typ, a ==. "val"])
-    es <- traverse unElem (filter notSpace es')
+decodeUnion :: Text -> ((Text, [Node]) -> Maybe a) -> Decoder a
+decodeUnion typ fun (Node e ["val" := con] es') = do
+    guard (e == typ)
+    es <- traverse toNode es'
     fun (con, es)
+decodeUnion _ _ _ = empty
 
-instance XmlEncode Bool where
-    encode True  = unode "bool" (uattr "val" "true")
-    encode False = unode "bool" (uattr "val" "false")
+instance Encode Bool where
+    encode True  = Node "bool" ["val" := "true"]  []
+    encode False = Node "bool" ["val" := "false"] []
 
-instance XmlDecode Bool where
+instance Decode Bool where
     decode = decodeUnion "bool" $ \case
         ("true",  []) -> pure True
         ("false", []) -> pure False
-        _             -> mzero
+        _             -> empty
 
 
-instance XmlEncode Int where encode = unode "int" . show
+instance Encode Int where
+    encode x = Node "int" [] [T (tshow x)]
 
-instance XmlDecode Int where
+instance Decode Int where
     decode elt = do
-        Element e [] [Text txt] _ <- pure elt
-        guard (e ==. "int")
-        readMaybe (cdData txt)
+        Node "int" [] [T txt] <- pure elt
+        tread txt
 
 
-instance XmlEncode Text where encode = unode "string" . unpack
+instance Encode Text where
+    encode txt = Node "string" [] [T txt]
 
-instance XmlDecode Text where
+instance Decode Text where
     decode elt = do
-        Element e [] txts _ <- pure elt
-        guard (e ==. "string")
-        pack <$> concatTexts txts
+        Node "string" [] txts <- pure elt
+        concatTexts txts
 
-concatTexts :: [Content] -> Maybe String
-concatTexts = fmap concat . traverse toString
-  where
-    toString (Text txt) = pure (cdData txt)
-    toString (CRef ent) =
-        case ent of
-          -- list taken from lib/xml_lexer.mll:51-56
-          "nbsp"  -> pure "\xA0"
-          "gt"    -> pure ">"
-          "lt"    -> pure "<"
-          "amp"   -> pure "&"
-          "apos"  -> pure "'"
-          "quot"  -> pure "\""
-          '#':num -> do i <- readMaybe num; pure [chr i]
-          _       -> mzero
-    toString _          = mzero
+concatTexts :: [Child] -> Maybe Text
+concatTexts = fmap Text.concat . traverse toText
 
+instance Encode a => Encode (Maybe a) where
+    encode (Just x) = Node "option" ["val" := "some"] [N (encode x)]
+    encode Nothing  = Node "option" ["val" := "none"] []
 
-instance XmlEncode a => XmlEncode (Maybe a) where
-    encode (Just x) = unode "option" (uattr "val" "some", encode x)
-    encode Nothing  = unode "option" (uattr "val" "none")
-
-instance XmlDecode a => XmlDecode (Maybe a) where
+instance Decode a => Decode (Maybe a) where
     decode = decodeMaybe decode
 
-decodeMaybe :: XmlDecoder a -> XmlDecoder (Maybe a)
+decodeMaybe :: Decoder a -> Decoder (Maybe a)
 decodeMaybe dec = decodeUnion "option" $ \case
     ("some", [e]) -> Just <$> dec e
     ("none", [])  -> pure Nothing
-    _             -> mzero
+    _             -> empty
 
 
-instance XmlEncode () where encode () = unode "unit" ()
+instance Encode () where encode () = Node "unit" [] []
 
-instance XmlDecode () where
+instance Decode () where
     decode = decodeUnit
 
-decodeUnit :: XmlDecoder ()
-decodeUnit elt = do
-    Element e [] es _ <- pure elt
-    guard (and [e ==. "unit", not (any notSpace es)])
+decodeUnit :: Decoder ()
+decodeUnit (Node "unit" [] []) = pure ()
+decodeUnit _                   = empty
 
 
-instance (XmlEncode a, XmlEncode b) => XmlEncode (a, b) where
-    encode (a, b) = unode "pair" [encode a, encode b]
+instance (Encode a, Encode b) => Encode (a, b) where
+    encode (a, b) = Node "pair" [] [N (encode a), N (encode b)]
 
-instance (XmlDecode a, XmlDecode b) => XmlDecode (a, b) where
+instance (Decode a, Decode b) => Decode (a, b) where
     decode = decodePair decode decode
 
-decodePair :: XmlDecoder a -> XmlDecoder b -> XmlDecoder (a, b)
-decodePair dec1 dec2 elt = do
-    Element e [] es _ <- pure elt
-    guard (e ==. "pair")
-    [Elem a, Elem b] <- pure (filter notSpace es)
+decodePair :: Decoder a -> Decoder b -> Decoder (a, b)
+decodePair dec1 dec2 (Node "pair" [] [N a, N b]) =
     liftA2 (,) (dec1 a) (dec2 b)
+decodePair _ _ _ = empty
 
 
-instance XmlEncode a => XmlEncode [a] where
-    encode = unode "list" . map encode
+instance Encode a => Encode [a] where
+    encode = Node "list" [] . map (N . encode)
 
-instance XmlDecode a => XmlDecode [a] where
+instance Decode a => Decode [a] where
     decode = decodeList decode
 
-decodeList :: XmlDecoder a -> XmlDecoder [a]
-decodeList dec elt = do
-    Element e [] es _ <- pure elt
-    guard (e ==. "list")
-    traverse (dec <=< unElem) (filter notSpace es)
+decodeList :: Decoder a -> Decoder [a]
+decodeList dec (Node "list" [] es) = do
+    traverse (dec <=< toNode) es
+decodeList _ _ = empty
 
 
-instance (XmlEncode a, XmlEncode b) => XmlEncode (Either a b) where
+instance (Encode a, Encode b) => Encode (Either a b) where
     encode (Left  x) = encodeConstructor "union" "in_l" x
     encode (Right x) = encodeConstructor "union" "in_r" x
 
-instance (XmlDecode a, XmlDecode b) => XmlDecode (Either a b) where
+instance (Decode a, Decode b) => Decode (Either a b) where
     decode = decodeUnion "union" $ \case
         ("in_l", [e]) -> Left  <$> decode e
         ("in_r", [e]) -> Right <$> decode e
-        _             -> mzero
+        _             -> empty
 
-decodeRecord :: String -> XmlDecoder [Element]
-decodeRecord str elt = do
-    Element e [] es _ <- pure elt
-    guard (e ==. str)
-    traverse unElem (filter notSpace es)
-
-notSpace :: Content -> Bool
-notSpace (Text str) = not (all isSpace (cdData str))
-notSpace _          = True
+decodeRecord :: Text -> Decoder [Node]
+decodeRecord str (Node e [] es) = do
+    guard (e == str)
+    traverse toNode es
+decodeRecord _ _ = empty
 
 
-encodeConstructor :: XmlEncode a => String -> String -> a -> Element
+encodeConstructor :: Encode a => Text -> Text -> a -> Node
 encodeConstructor con name arg =
-    unode con (uattr "val" name, encode arg)
+    Node con ["val" := name] [N (encode arg)]
 
 
-instance XmlEncode Init where encode = encode . iFilename
+instance Encode Init where encode = encode . iFilename
 
-instance XmlDecode InitResp where decode = fmap InitResp . decode
+instance Decode InitResp where decode = fmap InitResp . decode
 
-instance XmlMessage Init InitResp where
+instance Message Init InitResp where
     callName _ = "Init"
 
 
-instance XmlEncode About where encode _ = encode ()
+instance Encode About where encode _ = encode ()
 
-instance XmlDecode AboutResp where
+instance Decode AboutResp where
     decode elt = do
         [coqtop, proto, rel, comp] <- decodeRecord "coq_info" elt
         liftA4 AboutResp (decode coqtop) (decode proto)
                          (decode rel)    (decode comp)
 
-instance XmlMessage About AboutResp where
+instance Message About AboutResp where
     callName _ = "About"
 
 
-instance XmlEncode Status where encode = encode . sForceEval
+instance Encode Status where encode = encode . sForceEval
 
-instance XmlDecode StatusResp where
+instance Decode StatusResp where
     decode elt = do
         [path, nm, proofs, num] <- decodeRecord "status" elt
         liftA4 StatusResp (decode path) (decode nm)
                           (decode proofs) (decode num)
 
-instance XmlMessage Status StatusResp where
+instance Message Status StatusResp where
     callName _ = "Status"
 
 
-instance XmlEncode Add where
+instance Encode Add where
     encode (Add {..}) = encode ((aPhrase, aEditId), (aStateId, aVerbose))
 
-instance XmlDecode AddResp where
+instance Decode AddResp where
     decode elt = do
         (arStateId, (arEditPoint', arMessage)) <- decode elt
         pure (AddResp {arEditPoint = unEither arEditPoint', ..})
 
-instance XmlMessage Add AddResp where
+instance Message Add AddResp where
     callName _ = "Add"
 
 
-instance XmlEncode EditAt where encode (EditAt {..}) = encode eStateId
+instance Encode EditAt where encode (EditAt {..}) = encode eStateId
 
-instance XmlDecode EditAtResp where
+instance Decode EditAtResp where
     decode elt = do
         e <- decode elt
         case e of
             Left  ()                         -> pure EditAtNewTip
             Right (erStart, (erStop, erTip)) -> pure (EditAtFocus {..})
 
-instance XmlMessage EditAt EditAtResp where
+instance Message EditAt EditAtResp where
     callName _ = "EditAt"
 
 
-instance XmlEncode Query where
+instance Encode Query where
     encode (Query {..}) = encode (qQuery, qStateId)
 
-instance XmlDecode QueryResp where decode = fmap QueryResp . decode
+instance Decode QueryResp where decode = fmap QueryResp . decode
 
-instance XmlMessage Query QueryResp where
+instance Message Query QueryResp where
     callName _ = "Query"
 
 
-instance XmlEncode Goal where encode _ = encode ()
+instance Encode Goal where encode _ = encode ()
 
-instance XmlDecode GoalResp where
+instance Decode GoalResp where
     decode elt = do
         mb <- decodeMaybe (decodeRecord "goals") elt
         case mb of
@@ -301,46 +277,46 @@ instance XmlDecode GoalResp where
             Just [fg, bg, sh, gu] ->
                 liftA4 GoalResp (decode fg) (decode bg)
                                 (decode sh) (decode gu)
-            _ -> mzero
+            _ -> empty
 
-instance XmlDecode GoalInfo where
+instance Decode GoalInfo where
     decode elt = do
         [g, h, c] <- decodeRecord "goal" elt
         liftA3 GoalInfo (decode g) (decode h) (decode c)
 
-instance XmlMessage Goal GoalResp where
+instance Message Goal GoalResp where
     callName _ = "Goal"
 
 
-instance XmlEncode Evars where encode _ = encode ()
+instance Encode Evars where encode _ = encode ()
 
-instance XmlDecode EvarsResp where
+instance Decode EvarsResp where
     decode = fmap (maybe EvarsNotInProof EvarsResp) . decode
 
-instance XmlDecode Evar where decode = fmap Evar . decode
+instance Decode Evar where decode = fmap Evar . decode
 
-instance XmlMessage Evars EvarsResp where
+instance Message Evars EvarsResp where
     callName _ = "Evars"
 
 
-instance XmlEncode Hints where encode _ = encode ()
+instance Encode Hints where encode _ = encode ()
 
-instance XmlDecode HintsResp where
+instance Decode HintsResp where
     decode = fmap (maybe HintsNotInProof (uncurry HintsResp)) . decode
 
-instance XmlDecode Hint where
+instance Decode Hint where
     decode = fmap (uncurry Hint) . decode
 
-instance XmlMessage Hints HintsResp where
+instance Message Hints HintsResp where
     callName _ = "Hints"
 
 
-instance XmlEncode Search where encode = encode . sFlags
+instance Encode Search where encode = encode . sFlags
 
-instance XmlEncode SearchFlag where
+instance Encode SearchFlag where
     encode (SearchFlag {..}) = encode (sfConstraint, sfNegate)
 
-instance XmlEncode SearchConstraint where
+instance Encode SearchConstraint where
     encode cst =
         case cst of
             NamePattern txt    -> encodeCst "name_pattern" txt
@@ -348,54 +324,54 @@ instance XmlEncode SearchConstraint where
             SubTypePattern txt -> encodeCst "subtype_pattern" txt
             InModule txts      -> encodeCst "in_module" txts
             IncludeBlacklist   ->
-                unode "search_cst" (uattr "val" "include_blacklist")
+                Node "search_cst" ["val" := "include_blacklist"] []
       where
         encodeCst x = encodeConstructor "search_cst" x
 
 
-instance XmlDecode SearchResp where decode = fmap SearchResp . decode
+instance Decode SearchResp where decode = fmap SearchResp . decode
 
-instance XmlDecode a => XmlDecode (CoqObject a) where
+instance Decode a => Decode (CoqObject a) where
     decode elt = do
         [pre, qid, obj] <- decodeRecord "coq_object" elt
         liftA3 CoqObject (decode pre) (decode qid) (decode obj)
 
-instance XmlMessage Search SearchResp where
+instance Message Search SearchResp where
     callName _ = "Search"
 
 
-instance XmlEncode GetOptions where encode _ = encode ()
+instance Encode GetOptions where encode _ = encode ()
 
-instance XmlDecode GetOptionsResp where
+instance Decode GetOptionsResp where
     decode = fmap GetOptionsResp . decode
 
-instance XmlDecode Option where decode = fmap (uncurry Option) . decode
+instance Decode Option where decode = fmap (uncurry Option) . decode
 
-instance XmlDecode OptionState where
+instance Decode OptionState where
     decode elt = do
         [sync, dep, desc, val] <- decodeRecord "option_state" elt
         liftA4 OptionState (decode sync) (decode dep)
                            (decode desc) (decode val)
 
-instance XmlDecode OptionValue where
+instance Decode OptionValue where
     decode = decodeUnion "option_value" $ \case
         ("boolvalue",      [e]) -> BoolValue      <$> decode e
         ("intvalue",       [e]) -> IntValue       <$> decode e
         ("stringvalue",    [e]) -> StringValue    <$> decode e
         ("stringoptvalue", [e]) -> StringOptValue <$> decode e
-        _                       -> mzero
+        _                       -> empty
 
-instance XmlMessage GetOptions GetOptionsResp where
+instance Message GetOptions GetOptionsResp where
     callName _ = "GetOptions"
 
 
-instance XmlEncode SetOptions where
+instance Encode SetOptions where
     encode (SetOptions opts) = encode opts
 
-instance XmlEncode SetOption where
+instance Encode SetOption where
     encode (SetOption {..}) = encode (soName, soValue)
 
-instance XmlEncode OptionValue where
+instance Encode OptionValue where
     encode val =
         case val of
             BoolValue x      -> optionValue "boolvalue" x
@@ -405,27 +381,27 @@ instance XmlEncode OptionValue where
       where
         optionValue x = encodeConstructor "option_value" x
 
-instance XmlDecode SetOptionsResp where
+instance Decode SetOptionsResp where
     decode elt = SetOptionsResp <$ decodeUnit elt
 
-instance XmlMessage SetOptions SetOptionsResp where
+instance Message SetOptions SetOptionsResp where
     callName _ = "SetOptions"
 
 
-instance XmlEncode MakeCases where encode = encode . mcTypeName
+instance Encode MakeCases where encode = encode . mcTypeName
 
-instance XmlDecode MakeCasesResp where decode = fmap MakeCasesResp . decode
+instance Decode MakeCasesResp where decode = fmap MakeCasesResp . decode
 
-instance XmlMessage MakeCases MakeCasesResp where
+instance Message MakeCases MakeCasesResp where
     callName _ = "MakeCases"
 
 
-instance XmlEncode Quit where encode _ = encode ()
+instance Encode Quit where encode _ = encode ()
 
-instance XmlDecode QuitResp where
+instance Decode QuitResp where
     decode elt = QuitResp <$ decodeUnit elt
 
-instance XmlMessage Quit QuitResp where
+instance Message Quit QuitResp where
     callName _ = "Quit"
 
 
@@ -436,12 +412,8 @@ liftA4 :: Applicative f => (a -> b -> c -> d -> e)
        -> f a -> f b -> f c -> f d -> f e
 liftA4 f a b c d = liftA3 f a b c <*> d
 
-uattr :: String -> String -> Attr
-uattr = Attr . unqual
+tread :: Read a => Text -> Maybe a
+tread = readMaybe . Text.unpack
 
-(==.) :: QName -> String -> Bool
-q ==. s = q == unqual s
-
-unElem :: Content -> Maybe Element
-unElem (Elem e) = pure e
-unElem _        = mzero
+tshow :: Show a => a -> Text
+tshow = Text.pack . show
