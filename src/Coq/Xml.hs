@@ -6,8 +6,7 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | XML encoding/decoding for messages to/from @coqtop@.
 module Coq.Xml
-  (module Coq.Protocol,
-   Encode (..),
+  (Encode (..),
    Decode (..), Decoder,
    Message (..),
    makeCall, fromResponse, Response (..), Location (..),
