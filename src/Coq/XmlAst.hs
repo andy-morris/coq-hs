@@ -62,7 +62,7 @@ textB :: MkB Text
 textB = Builder.fromText
 
 attrsB :: MkB [Attr]
-attrsB = mconcat . map ((" " <>) . attrB)
+attrsB = foldMap ((" " <>) . attrB)
 
 attrB :: MkB Attr
 attrB (n := v) = textB n <> "='" <> pcdataB v <> "'"
@@ -94,8 +94,7 @@ entityB c      = "&#" <> Builder.fromString (show (ord c)) <> ";"
 childrenCloseB :: Text -> MkB [Child]
 childrenCloseB _    [] = "/>"
 childrenCloseB name children =
-    ">" <> mconcat (map childB children) <>
-    "</" <> textB name <> ">"
+    ">" <> foldMap childB children <> "</" <> textB name <> ">"
 
 childB :: MkB Child
 childB (N node) = nodeB node

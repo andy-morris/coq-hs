@@ -67,22 +67,22 @@ data Response a =
 
 
 fromResponse :: Message rq rs => Node -> Response rs
-fromResponse elt =
+fromResponse (Node "value" attrs elts) =
     fromMaybe DecodeError $ do
-      Node e attrs elts <- pure elt
-      guard (e == "value")
-      decodeSuccess attrs elts <|> decodeFailure attrs elts
+      decodeSuccess elts <|> decodeFailure elts
   where
-    decodeSuccess ["val" := "good"] [N e] =
+    decodeSuccess [N e] = do
+        "good" <- lookupAttr "val" attrs
         Success <$> decode e
-    decodeSuccess _ _ = empty
-    decodeFailure attrs [N sid', T txt] = do
+    decodeSuccess _ = empty
+    decodeFailure [N sid', T txt] = do
         "fail" <- lookupAttr "val" attrs
         let loc = liftA2 Loc (tread =<< lookupAttr "loc_s" attrs)
                              (tread =<< lookupAttr "loc_e" attrs)
         sid <- decode sid'
         pure (Failure loc sid txt)
-    decodeFailure _ _ = empty
+    decodeFailure _ = empty
+fromResponse _ = DecodeError
 
 
 instance Encode StateId where
@@ -115,18 +115,16 @@ instance Encode Int where
     encode x = Node "int" [] [T (tshow x)]
 
 instance Decode Int where
-    decode elt = do
-        Node "int" [] [T txt] <- pure elt
-        tread txt
+    decode (Node "int" _ [T txt]) = tread txt
+    decode _                      = empty
 
 
 instance Encode Text where
     encode txt = Node "string" [] [T txt]
 
 instance Decode Text where
-    decode elt = do
-        Node "string" [] txts <- pure elt
-        concatTexts txts
+    decode (Node "string" _ txts) = concatTexts txts
+    decode _                      = empty
 
 concatTexts :: [Child] -> Maybe Text
 concatTexts = fmap Text.concat . traverse toText
@@ -147,12 +145,11 @@ decodeMaybe dec = decodeUnion "option" $ \case
 
 instance Encode () where encode () = Node "unit" [] []
 
-instance Decode () where
-    decode = decodeUnit
+instance Decode () where decode = decodeUnit
 
 decodeUnit :: Decoder ()
-decodeUnit (Node "unit" [] []) = pure ()
-decodeUnit _                   = empty
+decodeUnit (Node "unit" _ []) = pure ()
+decodeUnit _                  = empty
 
 
 instance (Encode a, Encode b) => Encode (a, b) where
@@ -162,7 +159,7 @@ instance (Decode a, Decode b) => Decode (a, b) where
     decode = decodePair decode decode
 
 decodePair :: Decoder a -> Decoder b -> Decoder (a, b)
-decodePair dec1 dec2 (Node "pair" [] [N a, N b]) =
+decodePair dec1 dec2 (Node "pair" _ [N a, N b]) =
     liftA2 (,) (dec1 a) (dec2 b)
 decodePair _ _ _ = empty
 
@@ -174,8 +171,7 @@ instance Decode a => Decode [a] where
     decode = decodeList decode
 
 decodeList :: Decoder a -> Decoder [a]
-decodeList dec (Node "list" [] es) = do
-    traverse (dec <=< toNode) es
+decodeList dec (Node "list" _ es) = traverse (dec <=< toNode) es
 decodeList _ _ = empty
 
 
