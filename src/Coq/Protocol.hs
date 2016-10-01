@@ -45,6 +45,10 @@ newtype StateId = StateId Int
 --
 -- If loading an existing file, then 'Init' also adds its directory to the
 -- load path if necessary, and loads compilation hints for its filename.
+--
+-- @
+-- Init: string option -> Stateid.t
+-- @
 data Init =
     Init {
       -- | 'Nothing' to begin an empty session.
@@ -53,6 +57,10 @@ data Init =
   deriving (Eq, Show)
 
 -- | 'Init' response.
+--
+-- @
+-- Init : string option -> Stateid.t
+-- @
 data InitResp =
     InitResp {
       -- State ID for the start of the file
@@ -62,9 +70,17 @@ data InitResp =
 
 
 -- | Ask for information about the @coqtop@ executable itself.
+--
+-- @
+-- About : unit -> Interface.coq_info
+-- @
 data About = About deriving (Eq, Show)
 
 -- | 'About' response.
+--
+-- @
+-- About : unit -> Interface.coq_info
+-- @
 data AboutResp =
     AboutResp {
       arCoqtopVersion, arProtocolVersion,
@@ -74,6 +90,10 @@ data AboutResp =
 
 
 -- | Current prover status.
+--
+-- @
+-- Status : bool -> Interface.status
+-- @
 newtype Status =
     Status {
       -- | Whether to first force evaluation of any unevaluated statements
@@ -82,6 +102,10 @@ newtype Status =
   deriving (Eq, Show)
 
 -- | 'Status' response.
+--
+-- @
+-- Status : bool -> Interface.status
+-- @
 data StatusResp =
     StatusResp {
       -- | Module path of the current proof, if any
@@ -98,6 +122,11 @@ data StatusResp =
 
 
 -- | Send some input to @coqtop@.
+--
+-- @
+-- "Add" : ((string * int) * (Stateid.t * bool))
+--   -> (Stateid.t * (((unit, Stateid.t) CSig.union) * string))
+-- @
 data Add =
     Add {
       aPhrase  :: Text,
@@ -110,6 +139,11 @@ data Add =
   deriving (Eq, Show)
 
 -- | 'Add' response.
+--
+-- @
+-- "Add" : ((string * int) * (Stateid.t * bool))
+--   -> (Stateid.t * (((unit, Stateid.t) CSig.union) * string))
+-- @
 data AddResp =
     AddResp {
       -- | State ID for the phrase passed in
@@ -122,6 +156,11 @@ data AddResp =
 
 
 -- | Set the current edit point to a previous location.
+--
+-- @
+-- "Edit_at" :  Stateid.t
+--    -> ((unit, (Stateid.t * (Stateid.t * Stateid.t))) CSig.union)
+-- @
 newtype EditAt =
     EditAt {
       -- | State ID of the phrase to rewind to
@@ -130,6 +169,11 @@ newtype EditAt =
   deriving (Eq, Show)
 
 -- | 'EditAt' response.
+--
+-- @
+-- "Edit_at" :  Stateid.t
+--    -> ((unit, (Stateid.t * (Stateid.t * Stateid.t))) CSig.union)
+-- @
 data EditAtResp =
     -- | Rewound to requested point
     EditAtNewTip
@@ -140,6 +184,10 @@ data EditAtResp =
 
 
 -- | Execute a query (e.g. @Print@, @Check@, ...).
+--
+-- @
+-- Query : (string * Stateid.t) -> string
+-- @
 data Query =
     Query {
       qQuery :: Text,
@@ -149,15 +197,27 @@ data Query =
   deriving (Eq, Show)
 
 -- | 'Query' response.
+--
+-- @
+-- Query : (string * Stateid.t) -> string
+-- @
 newtype QueryResp = QueryResp { qrMessage :: Text }
   deriving (Eq, Show)
 
 
 -- | Ask for the current goals.
+--
+-- @
+-- Goal : unit -> (Interface.goals option)
+-- @
 data Goal = Goal
   deriving (Eq, Show)
 
 -- | 'Goal' response.
+--
+-- @
+-- Goal : unit -> (Interface.goals option)
+-- @
 data GoalResp =
     -- | No current proof
     GoalNotInProof
@@ -186,10 +246,18 @@ data GoalInfo =
 
 -- | Ask for the currently uninstantiated evars (existential variables) in
 -- a proof.
+--
+-- @
+-- "Evars" : unit -> ((Interface.evar list) option)
+-- @
 data Evars = Evars
   deriving (Eq, Show)
 
 -- | 'Evars' response.
+--
+-- @
+-- "Evars" : unit -> ((Interface.evar list) option)
+-- @
 data EvarsResp =
     EvarsNotInProof
   | EvarsResp { eEvars :: [Evar] }
@@ -201,10 +269,20 @@ newtype Evar = Evar { eInfo :: Text }
 
 
 -- | Suggest some tactics applicable to the current goal.
+--
+-- @
+-- Hints : unit
+--   -> (((((string * string) list) list) * ((string * string) list)) option)
+-- @
 data Hints = Hints
   deriving (Eq, Show)
 
 -- | 'Hints' response.
+--
+-- @
+-- Hints : unit
+--   -> (((((string * string) list) list) * ((string * string) list)) option)
+-- @
 data HintsResp =
     HintsNotInProof
   | HintsResp {
@@ -246,6 +324,11 @@ data SearchConstraint =
   deriving (Eq, Show)
 
 -- | 'Search' response.
+--
+-- @
+-- Search : ((Interface.search_constraint * bool) list)
+--   -> ((string Interface.coq_object) list)
+-- @
 newtype SearchResp =
     SearchResp { srResults :: [CoqObject Text] }
   deriving (Eq, Show)
@@ -262,9 +345,17 @@ data CoqObject a =
 
 
 -- | Get the current values of all options.
+--
+-- @
+-- GetOptions : unit -> (((string list) * Interface.option_state) list)
+-- @
 data GetOptions = GetOptions deriving (Eq, Show)
 
 -- | 'GetOptions' response.
+--
+-- @
+-- GetOptions : unit -> (((string list) * Interface.option_state) list)
+-- @
 newtype GetOptionsResp =
     GetOptionsResp { goOptions :: [Option] }
   deriving (Eq, Show)
@@ -301,9 +392,18 @@ data SetOptionsResp = SetOptionsResp
 
 
 -- | Generate a 'match' expression for a given inductive type.
+--
+-- @
+-- MkCases : string -> ((string list) list)
+-- @
 newtype MakeCases = MakeCases { mcTypeName :: Text }
   deriving (Eq, Show)
 
+-- | 'MakeCases' response.
+--
+-- @
+-- MkCases : string -> ((string list) list)
+-- @
 newtype MakeCasesResp =
     MakeCasesResp {
       -- | A list of arms; each arm is a list of the constructor name
