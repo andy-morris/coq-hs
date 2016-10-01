@@ -155,7 +155,7 @@ case_decode_Add =
 
 case_encode_EditAt =
     makeCall (EditAt (StateId 1)) @?=
-    [xml|<call val="EditAt"> <state_id val="1" /> </call>|]
+    [xml|<call val="Edit_at"> <state_id val="1" /> </call>|]
 case_decode_EditAt1 =
     decode [xml|<union val="in_l"> <unit /> </union>|] @?=
     Just EditAtNewTip
@@ -362,7 +362,7 @@ case_decode_SetOptions =
 
 case_encode_MakeCases =
     makeCall (MakeCases "nat") @?=
-    [xml|<call val="MakeCases"> <string>nat</string> </call>|]
+    [xml|<call val="MkCases"> <string>nat</string> </call>|]
 case_decode_MakeCases =
     decode [xml|
       <list>

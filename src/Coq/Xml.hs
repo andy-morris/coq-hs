@@ -255,7 +255,7 @@ instance Decode EditAtResp where
             Right (erStart, (erStop, erTip)) -> pure (EditAtFocus {..})
 
 instance Message EditAt EditAtResp where
-    callName _ = "EditAt"
+    callName _ = "Edit_at"
 
 
 instance Encode Query where
@@ -393,7 +393,7 @@ instance Encode MakeCases where encode = encode . mcTypeName
 instance Decode MakeCasesResp where decode = fmap MakeCasesResp . decode
 
 instance Message MakeCases MakeCasesResp where
-    callName _ = "MakeCases"
+    callName _ = "MkCases"
 
 
 instance Encode Quit where encode _ = encode ()
