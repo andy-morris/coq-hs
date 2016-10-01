@@ -19,11 +19,14 @@ library
   exposed-modules:
     Coq,
     Coq.Protocol,
+    Coq.XmlAst,
+    Coq.XmlParser,
     Coq.Xml
   build-depends:
     base == 4.9.*,
     text == 1.2.*,
-    xml == 1.3.*
+    xml == 1.3.*,
+    attoparsec == 0.13.*
 
 test-suite test-coq
   type:               exitcode-stdio-1.0
@@ -31,11 +34,14 @@ test-suite test-coq
   hs-source-dirs:     test
   default-language:   Haskell2010
   jhc-options:        -Wall
-  other-modules:      TestCoq.Xml
+  other-modules:
+    TestCoq.XmlParser,
+    TestCoq.Xml
   build-depends:
     base == 4.9.*,
     text == 1.2.*, quickcheck-text == 0.1.*,
     xml == 1.3.*,
+    attoparsec == 0.13.*,
     string-qq -any,
     coq,
     tasty == 0.11.*,
