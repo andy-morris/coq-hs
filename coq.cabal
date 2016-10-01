@@ -35,6 +35,7 @@ test-suite test-coq
   jhc-options:        -Wall
   other-modules:
     TestCoq.XmlQQ,
+    TestCoq.XmlAst,
     TestCoq.XmlParser,
     TestCoq.Xml
   build-depends:
