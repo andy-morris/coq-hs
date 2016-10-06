@@ -35,7 +35,7 @@ module Coq.Protocol
    -- * Feedback
    Feedback (..), FeedbackContent (..), Location (..),
    RouteId (..),
-   OldMessage (..), OldMessageLevel (..))
+   MessageLevel (..))
 where
 
 import Data.Text (Text)
@@ -437,6 +437,10 @@ data Feedback =
       fContents :: FeedbackContent,
       fRoute    :: RouteId
     }
+  | Message {
+      mLevel   :: MessageLevel,
+      mMessage :: Text
+    }
   deriving (Eq, Show)
 
 newtype RouteId = RouteId Int
@@ -473,19 +477,10 @@ data FeedbackContent =
     -- and the second is the full path to the file.
   | FileLoaded Text Text
   | Custom Location Text Node
-  | Message OldMessage
   deriving (Eq, Show)
 
 
--- | Old-style feedback messages.
-data OldMessage =
-    OldMessage {
-      omLevel   :: OldMessageLevel,
-      omContent :: Text
-    }
-  deriving (Eq, Show)
-
-data OldMessageLevel =
+data MessageLevel =
     LDebug Text
   | LInfo
   | LNotice

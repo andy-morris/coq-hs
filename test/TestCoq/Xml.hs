@@ -478,5 +478,17 @@ case_feedback_fileloaded =
       fRoute    = RouteId 0
     })
 
+case_message_info =
+    decode [xml|
+      <message>
+        <message_level val="info"/>
+        <string>Unnamed_thm&nbsp;is&nbsp;assumed</string>
+      </message>
+    |] @?=
+    Just (Message {
+      mLevel = LInfo,
+      mMessage = "Unnamed_thm\xA0is\xA0\&assumed"
+    })
+
 
 tests = $(testGroupGenerator)

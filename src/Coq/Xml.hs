@@ -427,6 +427,8 @@ instance Decode Feedback where
         route   <- readMaybe . Text.unpack =<< lookupAttr "route" attrs
         content <- decode content'
         pure (Feedback id content (RouteId route))
+    decode (Node "message" _ [N lvl, N msg]) =
+        liftA2 Message (decode lvl) (decode msg)
     decode _ = empty
 
 instance Decode FeedbackContent where
@@ -453,16 +455,10 @@ instance Decode FeedbackContent where
             liftA2 FileDependency (decode from) (decode dep)
         ("fileloaded", [dir, file]) ->
             liftA2 FileLoaded (decode dir) (decode file)
-        ("message", [m]) -> Message <$> decode m
         _ -> empty
 
-instance Decode OldMessage where
-    decode elt = do
-        [lvl, content] <- decodeRecord "message" elt
-        liftA2 OldMessage (decode lvl) (decode content)
-
-instance Decode OldMessageLevel where
-    decode = decodeUnion' "messageLevel" $ \case
+instance Decode MessageLevel where
+    decode = decodeUnion' "message_level" $ \case
         ("debug", [T txt]) -> pure (LDebug txt)
         ("info", _)        -> pure LInfo
         ("notice", _)      -> pure LNotice
