@@ -13,7 +13,7 @@ module Coq.Xml
    Node (..), Attr (..), Child (..))
 where
 
-import Prelude hiding (negate)
+import Prelude hiding (negate, id, mod)
 import Coq.Protocol
 import Coq.XmlAst
 import Text.Read (readMaybe)
@@ -22,7 +22,6 @@ import Control.Monad
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Maybe (fromMaybe)
-
 
 
 
@@ -51,9 +50,6 @@ makeCall :: Message rq rs => rq -> Node
 makeCall x = Node "call" ["val" := callName x] [N (encode x)]
 
 
-data Location = Loc { locStart, locEnd :: Int }
-  deriving (Eq, Show)
-
 -- | A response from @coqtop@.
 data Response a =
     -- | The command failed
@@ -76,8 +72,7 @@ fromResponse (Node "value" attrs elts) =
     decodeSuccess _ = empty
     decodeFailure [N sid', T txt] = do
         "fail" <- lookupAttr "val" attrs
-        let loc = liftA2 Loc (tread =<< lookupAttr "loc_s" attrs)
-                             (tread =<< lookupAttr "loc_e" attrs)
+        let loc = locFromAttrs "loc_s" "loc_e" attrs
         sid <- decode sid'
         pure (Failure loc sid txt)
     decodeFailure _ = empty
@@ -92,12 +87,34 @@ instance Decode StateId where
         (x, []) -> StateId <$> tread x
         _       -> empty
 
-decodeUnion :: Text -> ((Text, [Node]) -> Maybe a) -> Decoder a
-decodeUnion typ fun (Node e ["val" := con] es') = do
+decodeUnion' :: Text -> ((Text, [Child]) -> Maybe a) -> Decoder a
+decodeUnion' typ fun (Node e ["val" := con] es) = do
     guard (e == typ)
+    fun (con, es)
+decodeUnion' _ _ _ = empty
+
+decodeUnion :: Text -> ((Text, [Node]) -> Maybe a) -> Decoder a
+decodeUnion typ fun = decodeUnion' typ $ \(con, es') -> do
     es <- traverse toNode es'
     fun (con, es)
-decodeUnion _ _ _ = empty
+
+
+instance Encode EditId where
+    encode (EditId i) = encode i
+
+instance Decode EditId where
+    decode = fmap EditId . decode
+
+
+instance Decode Location where
+    decode (Node "loc" attrs _) = locFromAttrs "start" "stop" attrs
+    decode _ = empty
+
+locFromAttrs :: Text -> Text -> [Attr] -> Maybe Location
+locFromAttrs start stop attrs =
+    liftA2 Location (readMaybe . Text.unpack =<< lookupAttr start attrs)
+                    (readMaybe . Text.unpack =<< lookupAttr stop  attrs)
+
 
 instance Encode Bool where
     encode True  = Node "bool" ["val" := "true"]  []
@@ -400,12 +417,72 @@ instance Message Quit QuitResp where
     callName _ = "Quit"
 
 
+instance Decode Feedback where
+    decode (Node "feedback" attrs [N id', N content']) = do
+        wrap    <- mkWrap =<< lookupAttr "object" attrs
+        id      <- decode id'
+        route   <- readMaybe . Text.unpack =<< lookupAttr "route" attrs
+        content <- decode content'
+        pure (Feedback (wrap id) content (RouteId route))
+      where
+        mkWrap "edit"  = pure (Left  . EditId)
+        mkWrap "state" = pure (Right . StateId)
+        mkWrap _       = empty
+    decode _ = empty
+
+instance Decode FeedbackContent where
+    decode = decodeUnion "feedback_content" $ \case
+        ("addedaxiom", _) -> pure AddedAxiom
+        ("processed", _) -> pure Processed
+        ("processingin", [loc]) -> ProcessingIn <$> decode loc
+        ("incomplete", _) -> pure Incomplete
+        ("complete", _) -> pure Complete
+        ("globref", [loc, file, mod, id, ty]) ->
+            liftA5 GlobRef (decode loc) (decode file) (decode mod)
+                           (decode id)  (decode ty)
+        ("globdef", [loc, id, sec, ty]) ->
+            liftA4 GlobDef (decode loc) (decode id) (decode sec)
+                           (decode ty)
+        ("errormsg", [loc, txt]) ->
+            liftA2 ErrorMsg (decode loc) (decode txt)
+        ("inprogress", [n]) -> InProgress <$> decode n
+        ("workerstatus", [pair]) -> uncurry WorkerStatus <$> decode pair
+        ("goals", [loc, txt]) -> liftA2 Goals (decode loc) (decode txt)
+        ("custom", [loc, name, x]) ->
+            liftA3 Custom (decode loc) (decode name) (pure x)
+        ("filedependency", [from, dep]) ->
+            liftA2 FileDependency (decode from) (decode dep)
+        ("fileloaded", [dir, file]) ->
+            liftA2 FileLoaded (decode dir) (decode file)
+        ("message", [m]) -> Message <$> decode m
+        _ -> empty
+
+instance Decode OldMessage where
+    decode elt = do
+        [lvl, content] <- decodeRecord "message" elt
+        liftA2 OldMessage (decode lvl) (decode content)
+
+instance Decode OldMessageLevel where
+    decode = decodeUnion' "messageLevel" $ \case
+        ("debug", [T txt]) -> pure (LDebug txt)
+        ("info", _)        -> pure LInfo
+        ("notice", _)      -> pure LNotice
+        ("warning", _)     -> pure LWarning
+        ("error", _)       -> pure LError
+        _                  -> empty
+
+
+
 unEither :: Either () a -> Maybe a
 unEither = either (const Nothing) Just
 
 liftA4 :: Applicative f => (a -> b -> c -> d -> e)
        -> f a -> f b -> f c -> f d -> f e
 liftA4 f a b c d = liftA3 f a b c <*> d
+
+liftA5 :: Applicative f => (a -> b -> c -> d -> e -> x)
+       -> f a -> f b -> f c -> f d -> f e -> f x
+liftA5 f a b c d e = liftA4 f a b c d <*> e
 
 tread :: Read a => Text -> Maybe a
 tread = readMaybe . Text.unpack

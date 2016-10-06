@@ -2,29 +2,39 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -Wno-missing-signatures #-}
+{-# OPTIONS_GHC -Wno-missing-signatures -Wno-orphans #-}
 module TestCoq.Xml (tests, module Coq.Xml) where
 
 import Coq.Protocol
 import Coq.Xml
 import TestCoq.XmlQQ
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck (testProperty)
+import Test.Tasty.QuickCheck (testProperty, Arbitrary (..))
 import Test.Tasty.TH
 import Data.Text.Arbitrary (Text)
+
+
+instance Arbitrary StateId where
+    arbitrary = StateId <$> arbitrary
+    shrink (StateId s) = [StateId s' | s' <- shrink s]
+instance Arbitrary EditId where
+    arbitrary = EditId <$> arbitrary
+    shrink (EditId s) = [EditId s' | s' <- shrink s]
 
 
 encodeDecode :: (Encode a, Decode a, Eq a) => a -> Bool
 encodeDecode x = decode (encode x) == Just x
 
-prop_encodeDecode_Unit   = encodeDecode @()
-prop_encodeDecode_Bool   = encodeDecode @Bool
-prop_encodeDecode_Int    = encodeDecode @Int
-prop_encodeDecode_Text   = encodeDecode @Text
-prop_encodeDecode_Maybe  = encodeDecode @(Maybe Int)
-prop_encodeDecode_Pair   = encodeDecode @(Int, Text)
-prop_encodeDecode_List   = encodeDecode @[Int]
-prop_encodeDecode_Either = encodeDecode @(Either Int Text)
+prop_encodeDecode_Unit    = encodeDecode @()
+prop_encodeDecode_Bool    = encodeDecode @Bool
+prop_encodeDecode_Int     = encodeDecode @Int
+prop_encodeDecode_Text    = encodeDecode @Text
+prop_encodeDecode_Maybe   = encodeDecode @(Maybe Int)
+prop_encodeDecode_Pair    = encodeDecode @(Int, Text)
+prop_encodeDecode_List    = encodeDecode @[Int]
+prop_encodeDecode_Either  = encodeDecode @(Either Int Text)
+prop_encodeDecode_StateId = encodeDecode @StateId
+prop_encodeDecode_EditId  = encodeDecode @EditId
 
 case_encode_Unit =
     encode () @?= [xml|<unit />|]
@@ -120,7 +130,7 @@ case_decode_Status =
 case_encode_Add =
     makeCall (Add {
       aPhrase  = "intros.",
-      aEditId  = 11, -- FIXME if this value diesn't actually make sense
+      aEditId  = EditId 11, -- FIXME if this value diesn't actually make sense
       aStateId = StateId 0,
       aVerbose = False
     }) @?= [xml|
@@ -398,6 +408,7 @@ case_fromResponse_failure2 =
         no, sorry
       </value>
     |] @?=
-    (Failure (Just (Loc 0 1)) (StateId 1) "no, sorry" :: Response QuitResp)
+    (Failure (Just (Location 0 1)) (StateId 1) "no, sorry"
+        :: Response QuitResp)
 
 tests = $(testGroupGenerator)

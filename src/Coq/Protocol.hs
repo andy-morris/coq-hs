@@ -1,44 +1,55 @@
 -- | Data types for the protocol between @coqtop@ and an editor.
 module Coq.Protocol
-  (StateId (..),
-   -- * @Init@
+  (StateId (..), EditId (..),
+   -- * Messages
+   -- ** @Init@
    Init (..), InitResp (..),
-   -- * @About@
+   -- ** @About@
    About (..), AboutResp (..),
-   -- * @Status@
+   -- ** @Status@
    Status (..), StatusResp (..),
-   -- * @Add@
+   -- ** @Add@
    Add (..), AddResp (..),
-   -- * @EditAt@
+   -- ** @EditAt@
    EditAt (..), EditAtResp (..),
-   -- * @Query@
+   -- ** @Query@
    Query (..), QueryResp (..),
-   -- * @Goals@
+   -- ** @Goals@
    Goal (..), GoalResp (..), GoalInfo (..),
-   -- * @Evars@
+   -- ** @Evars@
    Evars (..), EvarsResp (..), Evar (..),
-   -- * @Hints@
+   -- ** @Hints@
    Hints (..), HintsResp (..), Hint (..),
-   -- * @Search@
+   -- ** @Search@
    Search (..), SearchResp (..),
    SearchFlag (..), SearchConstraint (..), CoqObject (..),
-   -- * @GetOptions@
+   -- ** @GetOptions@
    GetOptions (..), GetOptionsResp (..),
    Option (..), OptionState (..), OptionValue (..),
-   -- * @SetOptions@
+   -- ** @SetOptions@
    SetOptions (..), SetOptionsResp (..), SetOption (..),
-   -- * @MakeCases@
+   -- ** @MakeCases@
    MakeCases (..), MakeCasesResp (..),
-   -- * @Quit@
-   Quit (..), QuitResp (..))
+   -- ** @Quit@
+   Quit (..), QuitResp (..),
+   -- * Feedback
+   Feedback (..), FeedbackContent (..), Location (..),
+   RouteId (..),
+   OldMessage (..), OldMessageLevel (..))
 where
 
 import Data.Text (Text)
+import Coq.XmlAst
 
 
 -- | An identifier for a particular @coqtop@ state.
-newtype StateId = StateId Int
-  deriving (Eq, Show)
+newtype StateId = StateId Int deriving (Eq, Show)
+
+-- | TODO: ?
+newtype EditId = EditId Int deriving (Eq, Show)
+
+
+data Location = Location { locStart, locEnd :: Int } deriving (Eq, Show)
 
 
 -- | Load a file or start an empty session.
@@ -131,7 +142,7 @@ data Add =
     Add {
       aPhrase  :: Text,
       -- | TODO: ???
-      aEditId  :: Int,
+      aEditId  :: EditId,
       -- | Expected current state
       aStateId :: StateId,
       aVerbose :: Bool
@@ -418,3 +429,54 @@ data Quit = Quit deriving (Eq, Show)
 
 -- | 'Quit' response.
 data QuitResp = QuitResp deriving (Eq, Show)
+
+
+data Feedback =
+    Feedback {
+      fId       :: Either EditId StateId,
+      fContents :: FeedbackContent,
+      fRoute    :: RouteId
+    }
+  deriving (Eq, Show)
+
+newtype RouteId = RouteId Int
+  deriving (Eq, Show)
+
+-- | Feedback messages. Some of the 'Int's may turn into 'EditId's or
+-- 'RouteId's if that's what they turn out to be.
+--
+-- TODO meanings?
+data FeedbackContent =
+    Processed
+  | Incomplete
+  | Complete
+  | ErrorMsg Location Text
+  | ProcessingIn Text
+  | InProgress Int
+  | WorkerStatus Text Text
+  | Goals Location Text
+  | AddedAxiom
+  | GlobRef Location Text Text Text Text
+  | GlobDef Location Text Text Text
+  | FileDependency (Maybe Text) Text
+  | FileLoaded Text Text
+  | Custom Location Text Node
+  | Message OldMessage
+  deriving (Eq, Show)
+
+
+-- | Old-style feedback messages.
+data OldMessage =
+    OldMessage {
+      omLevel   :: OldMessageLevel,
+      omContent :: Text
+    }
+  deriving (Eq, Show)
+
+data OldMessageLevel =
+    LDebug Text
+  | LInfo
+  | LNotice
+  | LWarning
+  | LError
+  deriving (Eq, Show)
