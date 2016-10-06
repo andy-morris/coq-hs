@@ -82,6 +82,7 @@ case_decode_entities2 =
     Just ("\9786" :: Text)
 
 
+-- TODO replace all these with actual coqtop output
 
 case_encode_Init =
     makeCall (Init Nothing) @?=
@@ -410,5 +411,72 @@ case_fromResponse_failure2 =
     |] @?=
     (Failure (Just (Location 0 1)) (StateId 1) "no, sorry"
         :: Response QuitResp)
+
+
+case_feedback_processed =
+    decode [xml|
+      <feedback object="state" route="0">
+        <state_id val="1"/>
+        <feedback_content val="processed"/>
+      </feedback>
+    |] @?=
+    Just (Feedback {
+      fId       = Right (StateId 1),
+      fContents = Processed,
+      fRoute    = RouteId 0
+    })
+
+case_feedback_processingin =
+    decode [xml|
+      <feedback object="state" route="0">
+        <state_id val="2"/>
+        <feedback_content val="processingin">
+          <string>master</string>
+        </feedback_content>
+      </feedback>
+    |] @?=
+    Just (Feedback {
+      fId       = Right (StateId 2),
+      fContents = ProcessingIn "master",
+      fRoute    = RouteId 0
+    })
+
+case_feedback_filedependency =
+    decode [xml|
+      <feedback object="state" route="0">
+        <state_id val="2"/>
+        <feedback_content val="filedependency">
+          <option val="none"/>
+          <string>
+            /usr/lib/coq/theories/Arith/PeanoNat.vo
+          </string>
+        </feedback_content>
+      </feedback>
+    |] @?=
+    Just (Feedback {
+      fId       = Right (StateId 2),
+      fContents = FileDependency Nothing
+                    "/usr/lib/coq/theories/Arith/PeanoNat.vo",
+      fRoute    = RouteId 0
+    })
+
+case_feedback_fileloaded =
+    decode [xml|
+      <feedback object="state" route="0">
+        <state_id val="2"/>
+        <feedback_content val="fileloaded">
+          <string>Coq.Arith.PeanoNat</string><string>
+            /usr/lib/coq/theories/Arith/PeanoNat.vo
+          </string>
+        </feedback_content>
+      </feedback>
+    |] @?=
+    Just (Feedback {
+      fId       = Right (StateId 2),
+      fContents = FileLoaded "Coq.Arith.PeanoNat"
+                    "/usr/lib/coq/theories/Arith/PeanoNat.vo",
+      fRoute    = RouteId 0
+    })
+
 
 tests = $(testGroupGenerator)

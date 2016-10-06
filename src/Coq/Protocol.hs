@@ -447,10 +447,13 @@ newtype RouteId = RouteId Int
 --
 -- TODO meanings?
 data FeedbackContent =
+    -- | The document fragment has completed being processed
     Processed
   | Incomplete
   | Complete
   | ErrorMsg Location Text
+    -- | The document fragment has started to be processed, by the worker
+    -- thread with the given name.
   | ProcessingIn Text
   | InProgress Int
   | WorkerStatus Text Text
@@ -458,7 +461,16 @@ data FeedbackContent =
   | AddedAxiom
   | GlobRef Location Text Text Text Text
   | GlobDef Location Text Text Text
+    -- | A file dependency has just been spotted (but not processed yet).
+    --
+    -- * The first field is 'Nothing' for a direct dependency, and
+    --   @'Just' f@ for an indirect dependency coming from @f@ (which is
+    --   a full path).
+    --
+    -- * The second is the full path of the depended-upon file.
   | FileDependency (Maybe Text) Text
+    -- | A file has finished loading. The first field is the module name
+    -- and the second is the full path to the file.
   | FileLoaded Text Text
   | Custom Location Text Node
   | Message OldMessage
