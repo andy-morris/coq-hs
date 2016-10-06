@@ -419,15 +419,14 @@ instance Message Quit QuitResp where
 
 instance Decode Feedback where
     decode (Node "feedback" attrs [N id', N content']) = do
-        wrap    <- mkWrap =<< lookupAttr "object" attrs
-        id      <- decode id'
+        obj <- lookupAttr "object" attrs
+        id  <- case obj of
+            "edit"  -> Left  <$> decode id'
+            "state" -> Right <$> decode id'
+            _       -> empty
         route   <- readMaybe . Text.unpack =<< lookupAttr "route" attrs
         content <- decode content'
-        pure (Feedback (wrap id) content (RouteId route))
-      where
-        mkWrap "edit"  = pure (Left  . EditId)
-        mkWrap "state" = pure (Right . StateId)
-        mkWrap _       = empty
+        pure (Feedback id content (RouteId route))
     decode _ = empty
 
 instance Decode FeedbackContent where
