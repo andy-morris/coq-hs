@@ -43,10 +43,10 @@ import Coq.XmlAst
 
 
 -- | An identifier for a particular @coqtop@ state.
-newtype StateId = StateId Int deriving (Eq, Show)
+newtype StateId = StateId {unStateId :: Int} deriving (Eq, Show)
 
--- | TODO: ?
-newtype EditId = EditId Int deriving (Eq, Show)
+-- | An identifier for a phrase used to tie relevant feedback messages to it.
+newtype EditId = EditId {unEditId :: Int} deriving (Eq, Show)
 
 
 data Location = Location { locStart, locEnd :: Int } deriving (Eq, Show)
