@@ -483,6 +483,24 @@ case_feedback_fileloaded =
       fRoute    = RouteId 0
     })
 
+case_feedback_errormsg =
+    decode [xml|
+      <feedback object="edit" route="0">
+        <edit_id val="2"/>
+        <feedback_content val="errormsg">
+          <loc start="10" stop="11"/>
+          <string>Syntax&nbsp;error:&nbsp;&apos;.&apos;&nbsp;expected&nbsp;after&nbsp;[vernac:command]&nbsp;(in&nbsp;[vernac_aux]).</string>
+        </feedback_content>
+      </feedback>
+    |] @?=
+    Just (Feedback {
+      fId       = Left (EditId 2),
+      fContents = ErrorMsg (Location 10 11)
+        "Syntax\xA0\&error:\xA0'.'\xA0\&expected\xA0\&after\xA0\
+        \[vernac:command]\xA0(in\xA0[vernac_aux]).",
+      fRoute    = RouteId 0
+    })
+
 case_message_info =
     decode [xml|
       <message>
