@@ -251,7 +251,8 @@ instance Message Status StatusResp where
 
 
 instance Encode Add where
-    encode (Add {..}) = encode ((aPhrase, aEditId), (aStateId, aVerbose))
+    encode (Add {..}) =
+        encode ((aPhrase, unEditId aEditId), (aStateId, aVerbose))
 
 instance Decode AddResp where
     decode elt = do
