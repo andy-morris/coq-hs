@@ -462,6 +462,7 @@ data FeedbackContent =
   | InProgress Int
   | WorkerStatus Text Text
   | Goals Location Text
+    -- | As 'Processed', but the fragment introduces axioms
   | AddedAxiom
   | GlobRef Location Text Text Text Text
   | GlobDef Location Text Text Text
