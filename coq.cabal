@@ -8,9 +8,14 @@ license-file:   LICENCE.txt
 
 author:         Andy Morris
 maintainer:     Andy Morris <hello@andy-morris.xyz>
+bug-reports:    https://github.com/andy-morris/coq-hs/issues
 
 cabal-version:  >= 1.10
 build-type:     Simple
+
+source-repository head
+  type:     git
+  location: git://github.com/andy-morris/coq-hs.git
 
 library
   hs-source-dirs:     src
