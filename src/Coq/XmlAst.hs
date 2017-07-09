@@ -3,7 +3,7 @@
 module Coq.XmlAst
   (Node (..), toXml,
    Attr (..), lookupAttr,
-   Child (..), toNode, toText)
+   Child (..), textChild, toNode, toText, strip)
 where
 
 import Data.Text (Text)
@@ -28,7 +28,7 @@ data Node =
 
 data Attr = (:=) { attrName, attrValue :: Text } deriving Eq
 
--- | Look for th evalue of an attribute by name.
+-- | Look for the value of an attribute by name.
 lookupAttr :: Text -> [Attr] -> Maybe Text
 lookupAttr name = fmap attrValue . find ((name ==) . attrName)
 
@@ -37,12 +37,17 @@ instance Show Attr where
         showsPrec 10 n . showString " := " . showsPrec 10 v
 
 
--- | A child of a node, either another node or a text element.
-data Child = N Node | T Text deriving (Eq, Show)
+-- | A child of a node, either another node or a text element. A text element
+-- contains (1) the whole text, and (2) the text with leading and trailing
+-- whitespace stripped.
+data Child = N Node | T Text Text deriving (Eq, Show)
+
+textChild :: Text -> Child
+textChild txt = T txt (Text.strip txt)
 
 toText :: Child -> Maybe Text
-toText (T txt) = pure txt
-toText _       = empty
+toText (T txt _) = pure txt
+toText _         = empty
 
 toNode :: Child -> Maybe Node
 toNode (N e) = pure e
@@ -50,7 +55,10 @@ toNode _     = empty
 
 
 toXml :: Node -> Text
-toXml = Lazy.toStrict . Builder.toLazyText . nodeB
+toXml = runB . nodeB
+
+runB :: Builder -> Text
+runB = Lazy.toStrict . Builder.toLazyText
 
 type MkB a = a -> Builder
 
@@ -69,18 +77,16 @@ attrB (n := v) = textB n <> "='" <> pcdataB v <> "'"
 
 pcdataB :: MkB Text
 pcdataB txt | Text.null txt = mempty
-pcdataB txt =
-    let (this, rest) = Text.break special txt in
-    textB this <> entityPcdataB rest
+pcdataB txt = textB this <> entityPcdataB rest
+  where (this, rest) = Text.break special txt
 
 special :: Char -> Bool
 special c = c `elem` ("\"'<>&" :: String) || not (isAscii c && isPrint c)
 
 entityPcdataB :: MkB Text
-entityPcdataB txt' =
-    case Text.uncons txt' of
-      Just (c, txt) -> entityB c <> pcdataB txt
-      Nothing       -> mempty
+entityPcdataB txt'
+  | Just (c, txt) <- Text.uncons txt' = entityB c <> pcdataB txt
+entityPcdataB _    = mempty
 
 entityB :: MkB Char
 entityB '\xA0' = "&nbsp;"
@@ -92,10 +98,16 @@ entityB '&'    = "&amp;"
 entityB c      = "&#" <> Builder.fromString (show (ord c)) <> ";"
 
 childrenCloseB :: Text -> MkB [Child]
-childrenCloseB _    [] = "/>"
+childrenCloseB _    []       = "/>"
 childrenCloseB name children =
     ">" <> foldMap childB children <> "</" <> textB name <> ">"
 
 childB :: MkB Child
-childB (N node) = nodeB node
-childB (T txt)  = pcdataB txt
+childB (N node)  = nodeB node
+childB (T txt _) = pcdataB txt
+
+
+strip :: Node -> Text
+strip = runB . go . N where
+  go (N n)     = foldMap go $ nodeChildren n
+  go (T txt _) = textB txt

@@ -35,7 +35,8 @@ module Coq.Protocol
    -- * Feedback
    Feedback (..), FeedbackContent (..), Location (..),
    RouteId (..),
-   MessageLevel (..))
+   MessageLevel (..),
+   RichPP (..), RPPFragment (..))
 where
 
 import Data.Text (Text)
@@ -248,9 +249,9 @@ data GoalResp =
 data GoalInfo =
     GoalInfo {
       -- | A unique identifier
-      gGoalId :: Text,
-      gHypotheses :: [Text],
-      gConclusion :: Text
+      gGoalId     :: Text,
+      gHypotheses :: [RichPP],
+      gConclusion :: RichPP
     }
   deriving (Eq, Show)
 
@@ -439,7 +440,7 @@ data Feedback =
     }
   | Message {
       mLevel   :: MessageLevel,
-      mMessage :: Text
+      mMessage :: RichPP
     }
   deriving (Eq, Show)
 
@@ -487,4 +488,19 @@ data MessageLevel =
   | LNotice
   | LWarning
   | LError
+  deriving (Eq, Show)
+
+
+-- | Formatted text, e.g. error messages. A value of @RichPP@ is a sequence of
+-- text segments with formatting indicated by class names such as @constr@,
+-- @variable@, @notation@, etc.
+newtype RichPP = RPP [RPPFragment]
+  deriving (Eq, Show)
+
+-- | A single piece of a 'RichPP'.
+data RPPFragment =
+    -- | Some text.
+    RText Text
+    -- | Some formatting classes followed by some fragments to apply them to.
+  | RFormat [Text] [RPPFragment]
   deriving (Eq, Show)

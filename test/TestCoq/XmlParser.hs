@@ -33,11 +33,12 @@ case_ident_one   = ident ~~> "a"    @?= Just "a"
 case_ident_many  = ident ~~> "abc"  @?= Just "abc"
 case_ident_digit = ident ~~> "abc1" @?= Just "abc1"
 case_ident_und   = ident ~~> "a_b"  @?= Just "a_b"
+case_ident_dot   = ident ~~> "a.b"  @?= Just "a.b"
 
-case_pcdata_nonempty     = pcdata ~~> "abc"      @?= Just "abc"
-case_pcdata_entity       = pcdata ~~> "a&lt;b"   @?= Just "a<b"
-case_pcdata_space_before = pcdata ~~> " \n\tabc" @?= Just "abc"
-case_pcdata_space_after  = pcdata ~~> "abc \n\t" @?= Just "abc"
+case_pcdata_nonempty     = pcdata ~~> "abc"      @?= Just ("abc", "abc")
+case_pcdata_entity       = pcdata ~~> "a&lt;b"   @?= Just ("a<b", "a<b")
+case_pcdata_space_before = pcdata ~~> " \n\tabc" @?= Just (" \n\tabc", "abc")
+case_pcdata_space_after  = pcdata ~~> "abc \n\t" @?= Just ("abc \n\t", "abc")
 case_pcdata_lt           = pcdata ~~> "a<b"      @?= Nothing
 
 case_openTag_unterminated =
@@ -80,15 +81,15 @@ case_node_empty_long =
 case_node_empty_long_space =
     node ~~> "<a> </a>" @?= Just (Node "a" [] [])
 case_node_child_text =
-    node ~~> "<a>b</a>" @?= Just (Node "a" [] [T "b"])
+    node ~~> "<a>b</a>" @?= Just (Node "a" [] [textChild "b"])
 case_node_child_node =
     node ~~> "<a><b/></a>" @?= Just (Node "a" [] [N (Node "b" [] [])])
 case_node_child_text_node =
     node ~~> "<a>b\n<c/></a>" @?=
-    Just (Node "a" [] [T "b", N (Node "c" [] [])])
+    Just (Node "a" [] [textChild "b\n", N (Node "c" [] [])])
 case_node_child_node_text =
     node ~~> "<a><c/>\nb</a>" @?=
-    Just (Node "a" [] [N (Node "c" [] []), T "b"])
+    Just (Node "a" [] [N (Node "c" [] []), textChild "\nb"])
 
 case_full_response =
     (skipSpace *> node <* skipSpace) ~~> [s|
@@ -106,10 +107,10 @@ case_full_response =
     Just (Node "option_state" [] [
       N (Node "bool" ["val" := "true"] []),
       N (Node "bool" ["val" := "false"] []),
-      N (Node "string" [] [T "name1"]),
+      N (Node "string" [] [textChild "name1"]),
       N (Node "option_value" ["val" := "intvalue"] [
         N (Node "option" ["val" := "some"] [
-          N (Node "int" [] [T "37"])
+          N (Node "int" [] [textChild "37"])
         ])
       ])
     ])

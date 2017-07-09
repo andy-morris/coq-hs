@@ -53,7 +53,7 @@ makeCall x = Node "call" ["val" := callName x] [N (encode x)]
 -- | A response from @coqtop@.
 data Response a =
     -- | The command failed
-    Failure (Maybe Location) StateId Text
+    Failure (Maybe Location) StateId RichPP
     -- | Couldn't understand @coqtop@'s response
   | DecodeError
     -- | The command was successful
@@ -70,11 +70,12 @@ fromResponse (Node "value" attrs elts) =
         "good" <- lookupAttr "val" attrs
         Success <$> decode e
     decodeSuccess _ = empty
-    decodeFailure [N sid', T txt] = do
+    decodeFailure [N sid', N err] = do
         "fail" <- lookupAttr "val" attrs
         let loc = locFromAttrs "loc_s" "loc_e" attrs
         sid <- decode sid'
-        pure (Failure loc sid txt)
+        rpp <- decode err
+        pure (Failure loc sid rpp)
     decodeFailure _ = empty
 fromResponse _ = DecodeError
 
@@ -133,15 +134,15 @@ instance Decode Bool where
 
 
 instance Encode Int where
-    encode x = Node "int" [] [T (tshow x)]
+    encode x = Node "int" [] [textChild (tshow x)]
 
 instance Decode Int where
-    decode (Node "int" _ [T txt]) = tread txt
-    decode _                      = empty
+    decode (Node "int" _ [T _ txt]) = tread txt
+    decode _                        = empty
 
 
 instance Encode Text where
-    encode txt = Node "string" [] [T txt]
+    encode txt = Node "string" [] [textChild txt]
 
 instance Decode Text where
     decode (Node "string" _ txts) = concatTexts txts
@@ -465,12 +466,33 @@ instance Decode FeedbackContent where
 
 instance Decode MessageLevel where
     decode = decodeUnion' "message_level" $ \case
-        ("debug", [T txt]) -> pure (LDebug txt)
-        ("info", _)        -> pure LInfo
-        ("notice", _)      -> pure LNotice
-        ("warning", _)     -> pure LWarning
-        ("error", _)       -> pure LError
-        _                  -> empty
+        ("debug", [T _ txt]) -> pure (LDebug txt)
+        ("info", _)          -> pure LInfo
+        ("notice", _)        -> pure LNotice
+        ("warning", _)       -> pure LWarning
+        ("error", _)         -> pure LError
+        _                    -> empty
+
+
+instance Encode RichPP where
+    encode (RPP fs) =
+        Node "richpp" [] [N (Node "_" [] $ map encodeFrag fs)]
+
+encodeFrag :: RPPFragment -> Child
+encodeFrag (RText txt)     = textChild txt
+encodeFrag (RFormat cs fs) = N $ Node name [] (map encodeFrag fs)
+  where name = Text.intercalate "." cs
+
+instance Decode RichPP where
+    decode (Node "richpp" [] [N (Node "_" [] fs)]) =
+      RPP <$> traverse decodeFrag fs
+    decode _ = empty
+
+decodeFrag :: Child -> Maybe RPPFragment
+decodeFrag (T txt _)           = pure (RText txt)
+decodeFrag (N (Node cs [] fs)) = RFormat cs' <$> traverse decodeFrag fs
+  where cs' = Text.splitOn "." cs
+decodeFrag _ = empty
 
 
 

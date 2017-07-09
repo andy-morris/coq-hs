@@ -38,11 +38,13 @@ case_child_node2 =
     toXml (Node "a" [] [N (Node "b" [] []), N (Node "c" [] [])]) @?=
     "<a><b/><c/></a>"
 case_child_text1 =
-    toXml (Node "a" [] [T "b"]) @?= "<a>b</a>"
+    toXml (Node "a" [] [textChild "b"]) @?= "<a>b</a>"
+case_child_text1_space =
+    toXml (Node "a" [] [textChild "b   "]) @?= "<a>b   </a>"
 case_child_text_entity =
-    toXml (Node "a" [] [T "<>"]) @?= "<a>&lt;&gt;</a>"
+    toXml (Node "a" [] [textChild "<>"]) @?= "<a>&lt;&gt;</a>"
 case_child_text_node =
-    toXml (Node "a" [] [T "b", N (Node "c" [] [])]) @?= "<a>b<c/></a>"
+    toXml (Node "a" [] [textChild "b", N (Node "c" [] [])]) @?= "<a>b<c/></a>"
 
 instance Arbitrary Node where
     arbitrary =
@@ -58,16 +60,16 @@ instance Arbitrary Attr where
     shrink (n := v) = [n := v' | v' <- shrink v]
 
 instance Arbitrary Child where
-    arbitrary = oneof [N <$> arbitrary, T <$> arbText]
-    shrink (N n) = map N (shrink n)
-    shrink (T t) = map T (shrinkText t)
+    arbitrary = oneof [N <$> arbitrary, textChild <$> arbText]
+    shrink (N n)   = map N (shrink n)
+    shrink (T t _) = map textChild (shrinkText t)
 
 arbText = Text.strip . pack <$> (arbitrary `suchThat` any (not . isSpace))
 shrinkText t = filter (Text.any (not . isSpace)) (shrink t)
 
-mergeChildren (T t1 : T t2 : cs) = mergeChildren (T (t1 <> t2) : cs)
-mergeChildren (c : cs)           = c : mergeChildren cs
-mergeChildren []                 = []
+mergeChildren (T t1 _ : T t2 _ : cs) = mergeChildren (textChild (t1 <> t2) : cs)
+mergeChildren (c : cs)               = c : mergeChildren cs
+mergeChildren []                     = []
 
 arbList :: Arbitrary a => Gen [a]
 arbList = do

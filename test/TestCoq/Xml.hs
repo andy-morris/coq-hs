@@ -218,8 +218,14 @@ case_decode_Goal2 =
           <list>
             <goal>
               <string>goal1</string>
-              <list> <string>H : True</string> </list>
-              <string>False</string>
+              <list>
+                <richpp>
+                  <_>H : <constr.reference>True</constr.reference></_>
+                </richpp>
+              </list>
+              <richpp>
+                <_><constr.reference>False</constr.reference></_>
+              </richpp>
             </goal>
           </list>
         </goals>
@@ -231,8 +237,10 @@ case_decode_Goal2 =
       grShelved    = [],
       grGivenUp    = [GoalInfo {
         gGoalId     = "goal1",
-        gHypotheses = ["H : True"],
-        gConclusion = "False"
+        gHypotheses =
+            [RPP [RText "H : ",
+                  RFormat ["constr", "reference"] [RText "True"]]],
+        gConclusion = RPP [RFormat ["constr", "reference"] [RText "False"]]
       }]
     })
 
@@ -397,19 +405,19 @@ case_fromResponse_failure1 =
     fromResponse [xml|
       <value val="fail">
         <state_id val="1" />
-        no, sorry
+        <richpp><_>no, sorry</_></richpp>
       </value>
     |] @?=
-    (Failure Nothing (StateId 1) "no, sorry" :: Response QuitResp)
+    (Failure Nothing (StateId 1) (RPP [RText "no, sorry"]) :: Response QuitResp)
 
 case_fromResponse_failure2 =
     fromResponse [xml|
       <value val="fail" loc_s="0" loc_e="1">
         <state_id val="1" />
-        no, sorry
+        <richpp><_>no, sorry</_></richpp>
       </value>
     |] @?=
-    (Failure (Just (Location 0 1)) (StateId 1) "no, sorry"
+    (Failure (Just (Location 0 1)) (StateId 1) (RPP [RText "no, sorry"])
         :: Response QuitResp)
 
 
@@ -447,9 +455,7 @@ case_feedback_filedependency =
         <state_id val="2"/>
         <feedback_content val="filedependency">
           <option val="none"/>
-          <string>
-            /usr/lib/coq/theories/Arith/PeanoNat.vo
-          </string>
+          <string>/usr/lib/coq/theories/Arith/PeanoNat.vo</string>
         </feedback_content>
       </feedback>
     |] @?=
@@ -465,9 +471,8 @@ case_feedback_fileloaded =
       <feedback object="state" route="0">
         <state_id val="2"/>
         <feedback_content val="fileloaded">
-          <string>Coq.Arith.PeanoNat</string><string>
-            /usr/lib/coq/theories/Arith/PeanoNat.vo
-          </string>
+          <string>Coq.Arith.PeanoNat</string>
+          <string>/usr/lib/coq/theories/Arith/PeanoNat.vo</string>
         </feedback_content>
       </feedback>
     |] @?=
@@ -482,12 +487,12 @@ case_message_info =
     decode [xml|
       <message>
         <message_level val="info"/>
-        <string>Unnamed_thm&nbsp;is&nbsp;assumed</string>
+        <richpp><_>Unnamed_thm&nbsp;is&nbsp;assumed</_></richpp>
       </message>
     |] @?=
     Just (Message {
       mLevel = LInfo,
-      mMessage = "Unnamed_thm\xA0is\xA0\&assumed"
+      mMessage = RPP [RText "Unnamed_thm\xA0is\xA0\&assumed"]
     })
 
 

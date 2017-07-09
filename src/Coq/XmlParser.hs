@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -fdefer-typed-holes #-}
 -- | A simplified XML parser which is only expected to be able to handle
 -- what Coq might throw at it.
 module Coq.XmlParser
@@ -28,12 +27,12 @@ node = do
     if selfClose then do
       pure (Node name attrs [])
     else do
-      children <- many (N <$> node  <|>  T <$> pcdata)
+      children <- many (N <$> node  <|>  uncurry T <$> pcdata)
       closeTag name
       pure (Node name attrs (filter nonEmpty children))
   where
-    nonEmpty (T "") = False
-    nonEmpty _      = True
+    nonEmpty (T _ "") = False
+    nonEmpty _        = True
 
 -- | Parse an opening tag. The third element is 'True' if the tag is
 -- self-closing.
@@ -54,12 +53,12 @@ closeTag name = do
     string name *> skipSpace <* char '>'
 
 -- | Parse a simplified form of an XML identifier which only allows
--- letters, digits, and @_@.
+-- letters, digits, @_@, and @.@.
 ident :: Parser Text
 ident = liftA2 Text.cons (satisfy isAlpha') (takeWhile isAlphaNum')
   where
-    isAlpha'    c = c == '_' || isAlpha    c
-    isAlphaNum' c = c == '_' || isAlphaNum c
+    isAlpha'    c = c == '_' || c == '.' || isAlpha    c
+    isAlphaNum' c = c == '_' || c == '.' || isAlphaNum c
 
 -- | Parse an attribute.
 attr :: Parser Attr
@@ -70,9 +69,10 @@ attr = do
     pure (name := value)
 
 -- | Parse some text which may contain entities.
-pcdata :: Parser Text
-pcdata =
-    Text.strip . Text.concat <$> many1 (entity <|> takeWhile1 nonSpecial)
+pcdata :: Parser (Text, Text)
+pcdata = do
+    txt <- Text.concat <$> many1 (entity <|> takeWhile1 nonSpecial)
+    pure (txt, Text.strip txt)
   where nonSpecial c = c /= '&' && c /= '<'
 
 -- | Parse a string literal which can be delimited by either @"@ or @'@ and
