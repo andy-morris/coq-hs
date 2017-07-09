@@ -80,12 +80,15 @@ fromResponse _ = DecodeError
 
 
 instance Encode StateId where
-    encode (StateId i) = Node "state_id" ["val" := tshow i] []
+    encode (StateId i) = encodeId "state_id" i
 
 instance Decode StateId where
     decode = decodeUnion "state_id" $ \case
         (x, []) -> StateId <$> tread x
         _       -> empty
+
+encodeId :: Text -> Int -> Node
+encodeId typ i = Node typ ["val" := tshow i] []
 
 decodeUnion' :: Text -> ((Text, [Child]) -> Maybe a) -> Decoder a
 decodeUnion' typ fun (Node e ["val" := con] es) = do
@@ -100,10 +103,12 @@ decodeUnion typ fun = decodeUnion' typ $ \(con, es') -> do
 
 
 instance Encode EditId where
-    encode (EditId i) = encode i
+    encode (EditId i) = encodeId "edit_id" i
 
 instance Decode EditId where
-    decode = fmap EditId . decode
+    decode = decodeUnion "edit_id" $ \case
+        (x, []) -> EditId <$> tread x
+        _       -> empty
 
 
 instance Decode Location where
